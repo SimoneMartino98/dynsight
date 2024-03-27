@@ -145,43 +145,54 @@ def _computeavg(
         avg.append(mean_value)
     return np.array(avg)
 
-def spatialaverage(
-        trajectory: np.ndarray, # type: ignore[type-arg]
-        refcell: np.ndarray, # type: ignore[type-arg]
-        descriptor: np.ndarray, # type: ignore[type-arg]
-        cutoff: float,
-        ) -> np.ndarray: # type: ignore[type-arg]
-    """Compute the spatial average for a generic descriptor.
 
-    The values given by a generic size descriptor (frames, particles)
-    or (frames, particles, components) are averaged with the same values
-    of the atoms present inside a box with a side length of 2*cutoff
-    and having its center at the coordinates of the reference atom.
+def spatialaverage(
+    trajectory: np.ndarray,  # type: ignore[type-arg]
+    refcell: np.ndarray,  # type: ignore[type-arg]
+    descriptor: np.ndarray,  # type: ignore[type-arg]
+    cutoff: float,
+) -> np.ndarray:  # type: ignore[type-arg]
+    """Spatial average of a specified descriptor over a defined cubic volume.
+
+    This function performs spatial averaging of descriptor values across
+    particles located within a cubic region centered on the reference atom.
+    The region's edge length is determined by `2 * cutoff`.
+    The purpose is to smooth out descriptor values by considering
+    the contributions of nearby atoms within the specified volume.
 
     Parameters:
-        trajectory:
-            [frame, particles, 3] array containing the dynamics coordinates
-        refcell:
-            [frame, 3] array containing Lx, Ly and Lz parameters
-            of the reference cell during the simulation time.
-        descriptor:
-            [frame, particles] or [frame, particles, components] array
-            containing the descriptor data.
-        cutoff:
-            The maximum distance between the reference atom and the other
-            particles taken in consideration for the spatial smoothing.
+        trajectory (np.ndarray):
+            A numpy array of shape [frame, particles, 3],
+            representing the dynamic coordinates of particles.
+        refcell (np.ndarray):
+            A numpy array of shape [frame, 3], containing
+            the dimensions (Lx, Ly, Lz) of the reference cell at each frame of
+            the simulation.
+        descriptor (np.ndarray):
+            A numpy array of shape [frame, particles]
+            or [frame, particles, components], containing the values
+            of the descriptor being analyzed. The descriptor can be a scalar
+            property or a vector property of the particles.
+        cutoff (float):
+            Defines the radius of the cubic volume for spatial averaging,
+            centered on the reference atom. The edge length of the cube
+            is thus `2 * cutoff`. This parameter sets the spatial extent
+            over which the descriptor values are averaged.
 
     Returns:
-        The spatial averaged descriptor.
+        np.ndarray: A numpy array containing the spatially averaged descriptor
+        values. The shape of the array will maintain the original
+        descriptor shape.
     """
     avg_list = []
     for t in range(descriptor.shape[0]):
-        box_params = _defineboxes(trajectory[:,t,:], cutoff, refcell[t,0:3])
-        neigh = _findatomsinsidethebox(trajectory[:,t,:], box_params)
+        print(t)
+        box_params = _defineboxes(trajectory[:, t, :], cutoff, refcell[t, 0:3])
+        neigh = _findatomsinsidethebox(trajectory[:, t, :], box_params)
         dimension = 3
-        if(len(descriptor.shape) == dimension):
-            avg = _computeavg(neigh, descriptor[t,:,:])
+        if len(descriptor.shape) == dimension:
+            avg = _computeavg(neigh, descriptor[t, :, :])
         else:
-            avg = _computeavg(neigh, descriptor[t,:])
+            avg = _computeavg(neigh, descriptor[t, :])
         avg_list.append(avg)
     return np.stack(avg_list)
