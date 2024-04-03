@@ -45,7 +45,7 @@ def _defineboxes(
             if low_lim < 0:
                 low_lim = refcell[d] + low_lim
 
-            # box correction for low lim (periodic boundary conditions)
+            # box correction for max lim (periodic boundary conditions)
             if max_lim > refcell[d]:
                 max_lim = max_lim - refcell[d]
             # Define the box parameters for the p particle
@@ -120,6 +120,47 @@ def _findatomsinsidethebox(
 
     return boxpop
 
+def _compute_distances(positions, boxpop, refcell):
+    distances = {}
+    for key, values in boxpop.items():
+        # Estrai le posizioni delle particelle di interesse
+        pos_key = positions[key]
+        pos_values = positions[values]
+
+        #print(f"\nProcessing particle {key} against particles {values}:")
+
+        # Calcola le differenze vettoriali tenendo conto delle PBC
+        diff = pos_values - pos_key
+        diff_pbc = diff - np.round(diff / refcell) * refcell
+        #print(f"Differences before PBC adjustment: \n{diff}")
+        #print(f"Differences after PBC adjustment: \n{diff_pbc}")
+
+        # Calcola le distanze euclidee
+        dists = np.linalg.norm(diff_pbc, axis=1)
+        #print(f"Calculated distances: {dists}")
+
+        # Aggiorna il dizionario delle distanze
+        distances[key] = dists.tolist()
+    #print(distances)
+
+    return distances
+
+def _sphere_correction(boxpop: dict[int, list[int]], distances: dict[int, list[float]], cutoff: float) -> dict[int, list[int]]:
+    # Dizionario per contenere il risultato del filtraggio
+    filtered_boxpop = {}
+
+    # Itera attraverso ogni chiave e valori in boxpop
+    for key, values in boxpop.items():
+        # Ottiene le distanze corrispondenti per la chiave attuale
+        dists = distances[key]
+
+        # Filtra gli indici degli atomi in base al cutoff delle distanze
+        filtered_indices = [values[i] for i, dist in enumerate(dists) if dist < cutoff]
+
+        # Aggiorna il dizionario filtrato con i nuovi valori
+        filtered_boxpop[key] = filtered_indices
+
+    return filtered_boxpop
 
 def _computeavg(
     neighbors: dict[int, list[int]],  # type: ignore[type-arg]
@@ -151,11 +192,12 @@ def spatialaverage(
     refcell: np.ndarray,  # type: ignore[type-arg]
     descriptor: np.ndarray,  # type: ignore[type-arg]
     cutoff: float,
+    volume_shape: str,
 ) -> np.ndarray:  # type: ignore[type-arg]
     """Spatial average of a specified descriptor over a defined cubic volume.
 
     This function performs spatial averaging of descriptor values across
-    particles located within a cubic region centered on the reference atom.
+    particles located within a space region centered on the reference atom.
     The region's edge length is determined by `2 * cutoff`.
     The purpose is to smooth out descriptor values by considering
     the contributions of nearby atoms within the specified volume.
@@ -178,6 +220,10 @@ def spatialaverage(
             centered on the reference atom. The edge length of the cube
             is thus `2 * cutoff`. This parameter sets the spatial extent
             over which the descriptor values are averaged.
+        volume_shape (str):
+            The shape of the space region around the atom, can be:
+                - "cubic"
+                - "spheric"
 
     Returns:
         np.ndarray: A numpy array containing the spatially averaged descriptor
@@ -186,9 +232,15 @@ def spatialaverage(
     """
     avg_list = []
     for t in range(descriptor.shape[0]):
-        print(t)
+        print(f"FRAME {t}")
         box_params = _defineboxes(trajectory[:, t, :], cutoff, refcell[t, 0:3])
         neigh = _findatomsinsidethebox(trajectory[:, t, :], box_params)
+        #print(neigh)
+        if (volume_shape == "spheric"):
+            distances = _compute_distances(trajectory[:,t,:], neigh, refcell[t , 0:3])
+            #print(distances)
+            neigh = _sphere_correction(neigh, distances, cutoff)
+            #print(neigh)
         dimension = 3
         if len(descriptor.shape) == dimension:
             avg = _computeavg(neigh, descriptor[t, :, :])
