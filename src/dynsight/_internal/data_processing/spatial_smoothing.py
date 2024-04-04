@@ -222,8 +222,8 @@ def spatialaverage(
             over which the descriptor values are averaged.
         volume_shape (str):
             The shape of the space region around the atom, can be:
-                - "cubic"
-                - "spheric"
+                - "cube"
+                - "sphere"
 
     Returns:
         np.ndarray: A numpy array containing the spatially averaged descriptor
@@ -236,7 +236,7 @@ def spatialaverage(
         box_params = _defineboxes(trajectory[:, t, :], cutoff, refcell[t, 0:3])
         neigh = _findatomsinsidethebox(trajectory[:, t, :], box_params)
         #print(neigh)
-        if (volume_shape == "spheric"):
+        if (volume_shape == "sphere"):
             distances = _compute_distances(trajectory[:,t,:], neigh, refcell[t , 0:3])
             #print(distances)
             neigh = _sphere_correction(neigh, distances, cutoff)
