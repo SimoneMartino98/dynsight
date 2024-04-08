@@ -185,7 +185,7 @@ def _computeavg(
             sum_value = sum(descriptor[v] for v in neighs)
             mean_value = sum_value / len(neighs)
             avg.append(mean_value)
-    else:
+    elif(descriptor.ndim == 3):
         for p in range(descriptor.shape[0]):
             neighs = neighbors[p]
             sum_value = sum(descriptor[v,:] for v in neighs)
@@ -248,10 +248,9 @@ def spatialaverage(
             #print(distances)
             neigh = _sphere_correction(neigh, distances, cutoff)
             #print(neigh)
-        dimension = 3
-        if descriptor.ndim == dimension:
+        if (descriptor.ndim == 3):
             avg = _computeavg(neigh, descriptor[t, :, :])
-        else:
+        elif (descriptor.ndim == 2):
             avg = _computeavg(neigh, descriptor[t, :])
         avg_list.append(avg)
     return np.stack(avg_list)
