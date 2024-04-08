@@ -179,11 +179,18 @@ def _computeavg(
         Averaged descriptor between atoms belonging to the same box
     """
     avg = []
-    for p in range(len(descriptor)):
-        neighs = neighbors[p]
-        sum_value = sum(descriptor[v] for v in neighs)
-        mean_value = sum_value / len(neighs)
-        avg.append(mean_value)
+    if(descriptor.ndim == 2):
+        for p in range(descriptor.shape[0]):
+            neighs = neighbors[p]
+            sum_value = sum(descriptor[v] for v in neighs)
+            mean_value = sum_value / len(neighs)
+            avg.append(mean_value)
+    else:
+        for p in range(descriptor.shape[0]):
+            neighs = neighbors[p]
+            sum_value = sum(descriptor[v,:] for v in neighs)
+            mean_value = sum_value / len(neighs)
+            avg.append(mean_value)
     return np.array(avg)
 
 
@@ -242,7 +249,7 @@ def spatialaverage(
             neigh = _sphere_correction(neigh, distances, cutoff)
             #print(neigh)
         dimension = 3
-        if len(descriptor.shape) == dimension:
+        if descriptor.ndim == dimension:
             avg = _computeavg(neigh, descriptor[t, :, :])
         else:
             avg = _computeavg(neigh, descriptor[t, :])
