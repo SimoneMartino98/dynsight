@@ -179,18 +179,14 @@ def _computeavg(
         Averaged descriptor between atoms belonging to the same box
     """
     avg = []
-    if(descriptor.ndim == 2):
-        for p in range(descriptor.shape[0]):
-            neighs = neighbors[p]
+    for p in range(descriptor.shape[0]):
+        neighs = neighbors[p]
+        if(descriptor.ndim == 2):
             sum_value = sum(descriptor[v] for v in neighs)
-            mean_value = sum_value / len(neighs)
-            avg.append(mean_value)
-    elif(descriptor.ndim == 3):
-        for p in range(descriptor.shape[0]):
-            neighs = neighbors[p]
-            sum_value = sum(descriptor[v,:] for v in neighs)
-            mean_value = sum_value / len(neighs)
-            avg.append(mean_value)
+        else:
+            sum_value = np.sum(descriptor[neighs, :], axis=0)
+        mean_value = sum_value / len(neighs)
+        avg.append(mean_value)
     return np.array(avg)
 
 
