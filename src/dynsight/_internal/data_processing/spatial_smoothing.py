@@ -181,7 +181,7 @@ def _computeavg(
     avg = []
     for p in range(descriptor.shape[0]):
         neighs = neighbors[p]
-        if(descriptor.ndim == 2):
+        if(descriptor.ndim == 1):
             sum_value = sum(descriptor[v] for v in neighs)
         else:
             sum_value = np.sum(descriptor[neighs, :], axis=0)
