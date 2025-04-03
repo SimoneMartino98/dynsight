@@ -1,7 +1,5 @@
-from typing import TYPE_CHECKING
+import pathlib
 
-if TYPE_CHECKING:
-    import pathlib
 import cv2
 
 
