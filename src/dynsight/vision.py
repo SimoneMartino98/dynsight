@@ -1,9 +1,9 @@
 """Vision Package."""
 
 from dynsight._internal.vision.vision import (
-    hello,
+    extract_frames,
 )
 
 __all__ = [
-    "hello",
+    "extract_frames",
 ]
