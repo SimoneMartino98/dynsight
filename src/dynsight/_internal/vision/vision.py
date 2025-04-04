@@ -30,7 +30,7 @@ def extract_frames(
         end_frame = n_frames
     if start_frame is None:
         start_frame = 0
-    if start_frame < 0 or end_frame >= n_frames or start_frame > end_frame:
+    if start_frame < 0 or end_frame > n_frames or start_frame > end_frame:
         capture.release()
         error_message = f"Invalid frame range ({start_frame} - {end_frame})"
         raise ValueError(error_message)
