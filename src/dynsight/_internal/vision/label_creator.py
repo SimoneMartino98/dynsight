@@ -3,7 +3,7 @@ import tkinter as tk
 
 
 class LabelCreator:
-    def __init__(self, master: tk.Tk, image_path: pathlib.Path):
+    def __init__(self, master: tk.Tk, image_path: pathlib.Path) -> None:
         self.master = master
         self.master.title("Dynsight: Label Creator")
 
@@ -31,14 +31,14 @@ class LabelCreator:
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
 
         # Sidebar canvas
-        self.sidebar = tk.Canvas(
+        self.sidebar = tk.Frame(
             self.master,
             width=150,
             padx=10,
             pady=10,
         )
         self.sidebar.grid(row=0, column=1, sticky="ns")
-        self.sidebar.grid_propagate(False)
+        self.sidebar.grid_propagate(propagate=False)
 
         # Buttons
         self.submit_button = tk.Button(
