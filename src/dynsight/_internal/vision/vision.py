@@ -54,7 +54,6 @@ def extract_frames(
 def train_model(img_path: pathlib.Path) -> None:
     """Train a model using the provided image path."""
     root = tk.Tk()
-    print("ok")
     app = LabelCreator(root, img_path)
-    print("ok 2")
+    print(app)
     root.mainloop()
