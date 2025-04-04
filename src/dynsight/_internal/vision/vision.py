@@ -35,8 +35,9 @@ def extract_frames(
         error_message = f"Invalid frame range ({start_frame} - {end_frame})"
         raise ValueError(error_message)
     for i in range(start_frame, end_frame):
+        index = i - start_frame
         capture.set(cv2.CAP_PROP_POS_FRAMES, i)
         ret, frame = capture.read()
         if not ret:
             break
-        cv2.imwrite(str(output_path / f"frame_{i:04d}.png"), frame)
+        cv2.imwrite(str(output_path / f"{index}.jpg"), frame)
