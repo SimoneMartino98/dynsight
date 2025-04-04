@@ -150,6 +150,9 @@ class LabelCreator:
         error_message = "No boxes labelled."
         raise ValueError(error_message)
 
+    def get_boxes(self) -> list[dict]:
+        return self.boxes
+
     def undo(self) -> None:
         """Undo the last labelled box."""
         if self.boxes:

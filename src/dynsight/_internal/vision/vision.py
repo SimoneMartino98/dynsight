@@ -55,6 +55,6 @@ def train_model(img_path: pathlib.Path) -> None:
     """Train a model using the provided image path."""
     root = tk.Tk()
     app = LabelCreator(root, img_path)
-    print(app[:])
-    print(app[0])
+    res = app.get_boxes()
+    print(res)
     root.mainloop()
