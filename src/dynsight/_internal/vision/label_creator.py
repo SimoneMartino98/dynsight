@@ -29,6 +29,13 @@ class LabelCreator:
         )
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
+        # Horizontal and vertical lines
+        self.h_line = self.canvas.create_line(
+            0, 0, self.image.width(), 0, fill="gray", dash=(2, 2)
+        )
+        self.v_line = self.canvas.create_line(
+            0, 0, 0, self.image.height(), fill="gray", dash=(2, 2)
+        )
 
         # Sidebar canvas
         self.sidebar = tk.Frame(
@@ -72,6 +79,13 @@ class LabelCreator:
         self.canvas.bind("<Button-1>", self.on_click_press)
         self.canvas.bind("<ButtonRelease-1>", self.on_click_release)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<Motion>", self.follow_mouse)
+
+    def follow_mouse(self, event: tk.Event) -> None:
+        """Update horizontal and vertical lines to follow the mouse."""
+        x, y = event.x, event.y
+        self.canvas.coords(self.h_line, 0, y, self.image.width(), y)
+        self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_press(self, event: tk.Event) -> None:
         """Handle mouse click event to start drawing a box."""
