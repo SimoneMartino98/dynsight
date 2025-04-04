@@ -2,10 +2,10 @@
 
 from dynsight._internal.vision.vision import (
     extract_frames,
-    model_train,
+    train_model,
 )
 
 __all__ = [
     "extract_frames",
-    "model_train",
+    "train_model",
 ]
