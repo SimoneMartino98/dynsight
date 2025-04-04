@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-import pathlib
+import tkinter as tk
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pathlib
 
 import cv2
+
+from .label_creator import LabelCreator
 
 
 def extract_frames(
@@ -43,3 +49,10 @@ def extract_frames(
         if not ret:
             break
         cv2.imwrite(str(output_path / f"{index}.png"), frame)
+
+
+def train_model(img_path: pathlib.Path) -> None:
+    """Train a model using the provided image path."""
+    root = tk.Tk()
+    app = LabelCreator(root, img_path)
+    root.mainloop()
