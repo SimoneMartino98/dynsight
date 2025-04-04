@@ -32,10 +32,10 @@ class LabelCreator:
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
         # Horizontal and vertical lines
         self.h_line = self.canvas.create_line(
-            0, 0, self.image.width(), 0, fill="gray", dash=(2, 2), width=4
+            0, 0, self.image.width(), 0, fill="blue", dash=(2, 2), width=3
         )
         self.v_line = self.canvas.create_line(
-            0, 0, 0, self.image.height(), fill="gray", dash=(2, 2), width=4
+            0, 0, 0, self.image.height(), fill="blue", dash=(2, 2), width=3
         )
 
         # Sidebar canvas
