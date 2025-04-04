@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pathlib
 
 import cv2
@@ -40,4 +42,4 @@ def extract_frames(
         ret, frame = capture.read()
         if not ret:
             break
-        cv2.imwrite(str(output_path / f"{index}.jpg"), frame)
+        cv2.imwrite(str(output_path / f"{index}.png"), frame)
