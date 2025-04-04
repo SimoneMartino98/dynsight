@@ -32,10 +32,10 @@ class LabelCreator:
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
         # Horizontal and vertical lines
         self.h_line = self.canvas.create_line(
-            0, 0, self.image.width(), 0, fill="gray", dash=(2, 2), width=2
+            0, 0, self.image.width(), 0, fill="gray", dash=(2, 2), width=4
         )
         self.v_line = self.canvas.create_line(
-            0, 0, 0, self.image.height(), fill="gray", dash=(2, 2), width=2
+            0, 0, 0, self.image.height(), fill="gray", dash=(2, 2), width=4
         )
 
         # Sidebar canvas
@@ -81,6 +81,7 @@ class LabelCreator:
         self.canvas.bind("<ButtonRelease-1>", self.on_click_release)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<Motion>", self.follow_mouse)
+        self.canvas.bind("<B1-Motion>", self.follow_mouse)
 
     def follow_mouse(self, event: tk.Event) -> None:
         """Update horizontal and vertical lines to follow the mouse."""
