@@ -34,7 +34,7 @@ def extract_frames(
         capture.release()
         error_message = f"Invalid frame range ({start_frame} - {end_frame})"
         raise ValueError(error_message)
-    for i in range(start_frame, end_frame + 1):
+    for i in range(start_frame, end_frame):
         capture.set(cv2.CAP_PROP_POS_FRAMES, i)
         ret, frame = capture.read()
         if not ret:
