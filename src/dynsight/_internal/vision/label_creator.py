@@ -38,7 +38,7 @@ class LabelCreator:
             pady=10,
         )
         self.sidebar.grid(row=0, column=1, sticky="ns")
-        self.sidebar.grid_propagate(propagate=False)
+        self.sidebar.grid_propagate(flag=False)
 
         # Buttons
         self.submit_button = tk.Button(
