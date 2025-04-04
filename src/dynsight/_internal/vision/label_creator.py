@@ -83,7 +83,7 @@ class LabelCreator:
             self.start_x,
             self.start_y,
             outline="red",
-            width=2,
+            width=4,
         )
 
     def on_mouse_drag(self, event: tk.Event) -> None:
