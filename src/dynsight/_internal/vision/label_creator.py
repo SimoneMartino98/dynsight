@@ -81,7 +81,6 @@ class LabelCreator:
         self.canvas.bind("<ButtonRelease-1>", self.on_click_release)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<Motion>", self.follow_mouse)
-        self.canvas.bind("<B1-Motion>", self.follow_mouse)
 
     def follow_mouse(self, event: tk.Event) -> None:
         """Update horizontal and vertical lines to follow the mouse."""
@@ -112,6 +111,9 @@ class LabelCreator:
             cur_x,
             cur_y,
         )
+        x, y = event.x, event.y
+        self.canvas.coords(self.h_line, 0, y, self.image.width(), y)
+        self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_release(self, event: tk.Event) -> None:
         """Handle mouse release event to finalize the box."""
