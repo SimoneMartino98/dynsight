@@ -128,10 +128,9 @@ class LabelCreator:
         if self.boxes:
             self.master.quit()
             return self.boxes
+        self.master.quit()
         error_message = "No boxes labelled."
         raise ValueError(error_message)
-        self.master.quit()
-        return None
 
     def undo(self) -> None:
         """Undo the last labelled box."""
