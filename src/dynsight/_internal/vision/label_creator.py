@@ -127,6 +127,7 @@ class LabelCreator:
         """Submit the labelled boxes and close."""
         if self.boxes:
             return self.boxes
+            self.master.quit()
         error_message = "No boxes labelled."
         raise ValueError(error_message)
         self.master.quit()
