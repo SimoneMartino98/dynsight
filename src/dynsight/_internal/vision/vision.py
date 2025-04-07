@@ -61,10 +61,9 @@ def train_model(img_path: pathlib.Path) -> None:
     guess_dataset_lab_path = Path("dataset_guess/labels/train")
     guess_dataset_img_path = Path("dataset_guess/images/train")
     guess_dataset_img_path.mkdir(parents=True, exist_ok=True)
-    for img_file in img_path.iterdir():
-        if img_file.is_file():
-            destination = guess_dataset_img_path / img_file.name
-            destination.write_bytes(img_file.read_bytes())
+    if img_path.is_file():
+        destination = guess_dataset_img_path / img_path.name
+        destination.write_bytes(img_path.read_bytes())
     guess_dataset_lab_path.mkdir(parents=True, exist_ok=True)
     output_file = guess_dataset_lab_path / "0.txt"
     with output_file.open("w") as f:
