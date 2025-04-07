@@ -58,9 +58,15 @@ def train_model(img_path: pathlib.Path) -> None:
     app = LabelCreator(root, img_path)
     root.mainloop()
     res = app.get_boxes()
-    guess_dataset_path = Path("dataset_guess/train/labels")
-    guess_dataset_path.mkdir(parents=True, exist_ok=True)
-    output_file = guess_dataset_path / "0.txt"
+    guess_dataset_lab_path = Path("dataset_guess/labels/train")
+    guess_dataset_img_path = Path("dataset_guess/images/train")
+    guess_dataset_img_path.mkdir(parents=True, exist_ok=True)
+    for img_file in img_path.iterdir():
+        if img_file.is_file():
+            destination = guess_dataset_img_path / img_file.name
+            destination.write_bytes(img_file.read_bytes())
+    guess_dataset_lab_path.mkdir(parents=True, exist_ok=True)
+    output_file = guess_dataset_lab_path / "0.txt"
     with output_file.open("w") as f:
         for vals in res.values():
             f.write(
