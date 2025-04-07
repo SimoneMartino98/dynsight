@@ -57,7 +57,3 @@ def train_model(img_path: pathlib.Path) -> None:
     app = LabelCreator(root, img_path)
     root.mainloop()
     res = app.get_boxes()
-    for _name, val in res.items():
-        print(
-            f"{val['center_x']} {val['center_y']} {val['width']} {val['height']}"
-        )
