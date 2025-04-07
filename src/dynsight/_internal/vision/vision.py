@@ -80,7 +80,7 @@ def train_model(img_path: pathlib.Path) -> None:
     with Path.open(yaml_file, "w") as f:
         f.write(
             f"train: {guess_dataset_img_path!s}\n"
-            f"val: {guess_dataset_img_path!s}\n"
+            # f"val: {guess_dataset_img_path!s}\n"
             f"nc: 1\n"
             f"names: ['object']\n"
         )
