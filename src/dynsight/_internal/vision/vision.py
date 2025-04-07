@@ -61,5 +61,5 @@ def train_model(img_path: pathlib.Path) -> None:
         print(f"ID: {key}")
         for field, val in vals.items():
             if field in {"center_x", "center_y", "width", "height"}:
-                print(f"{field}: {val}", end=" ")
-            print()
+                print(f"{field}: {val}", end="; ")
+        print()
