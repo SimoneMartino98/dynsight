@@ -1,8 +1,6 @@
 import pathlib
 import tkinter as tk
 
-from PIL import Image, ImageDraw
-
 
 class LabelCreator:
     def __init__(self, master: tk.Tk, image_path: pathlib.Path) -> None:
@@ -160,41 +158,3 @@ class LabelCreator:
     def close(self) -> None:
         """Close the label creator."""
         self.master.quit()
-
-    def save_masked_image(self, output_path: pathlib.Path) -> None:
-        """Save the image with a mask showing only the content of the boxes, rest white."""
-        # Open the original image
-        original_image = Image.open(self.image.cget("file")).convert("RGBA")
-        masked_image = Image.new(
-            "RGBA", original_image.size, (255, 255, 255, 255)
-        )
-
-        # Draw the boxes on the mask
-        draw = ImageDraw.Draw(masked_image)
-        for box in self.boxes:
-            x1 = int(
-                box["center_x"] * original_image.width
-                - (box["width"] * original_image.width) / 2
-            )
-            y1 = int(
-                box["center_y"] * original_image.height
-                - (box["height"] * original_image.height) / 2
-            )
-            x2 = int(
-                box["center_x"] * original_image.width
-                + (box["width"] * original_image.width) / 2
-            )
-            y2 = int(
-                box["center_y"] * original_image.height
-                + (box["height"] * original_image.height) / 2
-            )
-            draw.rectangle([x1, y1, x2, y2], fill=(0, 0, 0, 0), outline=None)
-
-        # Composite the masked image
-        final_image = Image.alpha_composite(masked_image, original_image)
-        final_image = final_image.convert(
-            "RGB"
-        )  # Convert back to RGB for saving
-
-        # Save the result
-        final_image.save(output_path)

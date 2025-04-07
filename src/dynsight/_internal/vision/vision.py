@@ -59,7 +59,6 @@ def train_model(img_path: pathlib.Path) -> None:
     app = LabelCreator(root, img_path)
     root.mainloop()
     res = app.get_boxes()
-    app.save_masked_image("masked_image.png")
     root.destroy()
 
     # Creating the guess dataset
