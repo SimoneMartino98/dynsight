@@ -58,7 +58,9 @@ def train_model(img_path: pathlib.Path) -> None:
     app = LabelCreator(root, img_path)
     root.mainloop()
     res = app.get_boxes()
-    with Path.open("dataset_guess/guess_label.txt", "w") as f:
+    output_file = Path("dataset_guess/guess_label.txt")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with output_file.open("w") as f:
         for vals in res.values():
             f.write(
                 f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
