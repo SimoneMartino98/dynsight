@@ -1,6 +1,8 @@
 import pathlib
 import tkinter as tk
 
+from PIL import Image
+
 
 class LabelCreator:
     def __init__(self, master: tk.Tk, image_path: pathlib.Path) -> None:
@@ -148,6 +150,27 @@ class LabelCreator:
 
     def get_boxes(self) -> dict:
         return {box["id"]: box for box in self.boxes}
+
+    def extract_box_content_image(self) -> Image.Image:
+        """Crea una nuova immagine in cui viene mantenuto solo il contenuto delle box."""
+        width, height = self.pil_image.size
+        output_image = Image.new("RGB", (width, height), color="white")
+
+        for box in self.boxes:
+            cx = box["center_x"] * width
+            cy = box["center_y"] * height
+            box_w = box["width"] * width
+            box_h = box["height"] * height
+
+            x_min = max(int(cx - box_w / 2), 0)
+            y_min = max(int(cy - box_h / 2), 0)
+            x_max = min(int(cx + box_w / 2), width)
+            y_max = min(int(cy + box_h / 2), height)
+
+            cropped = self.pil_image.crop((x_min, y_min, x_max, y_max))
+            output_image.paste(cropped, (x_min, y_min))
+
+        return output_image
 
     def undo(self) -> None:
         """Undo the last labelled box."""
