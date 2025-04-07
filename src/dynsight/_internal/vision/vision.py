@@ -59,5 +59,5 @@ def train_model(img_path: pathlib.Path) -> None:
     res = app.get_boxes()
     for vals in res.values():
         print(
-            f"0 {vals['center_x']} {vals['center_y']} {vals['width']} {vals['height']}"
+            f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}"
         )
