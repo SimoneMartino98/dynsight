@@ -1,11 +1,18 @@
 import pathlib
 import tkinter as tk
 
+from PIL import (
+    Image,  # Assicurati di avere installato Pillow (pip install pillow)
+)
+
 
 class LabelCreator:
     def __init__(self, master: tk.Tk, image_path: pathlib.Path) -> None:
         self.master = master
         self.master.title("Dynsight: Label Creator")
+        self.image_path = (
+            image_path  # Salviamo il percorso per poter riaprire l'immagine
+        )
 
         # Image Loading
         try:
@@ -74,7 +81,7 @@ class LabelCreator:
         self.start_x = None
         self.start_y = None
         self.current_box = None
-        self.boxes = []
+        self.boxes = []  # Ogni box sarà un dizionario che contiene coordinate relative ed assolute
 
         # Mouse bindings
         self.canvas.bind("<Button-1>", self.on_click_press)
@@ -83,13 +90,13 @@ class LabelCreator:
         self.canvas.bind("<Motion>", self.follow_mouse)
 
     def follow_mouse(self, event: tk.Event) -> None:
-        """Update horizontal and vertical lines to follow the mouse."""
+        """Aggiorna le linee orizzontali e verticali per seguire il mouse."""
         x, y = event.x, event.y
         self.canvas.coords(self.h_line, 0, y, self.image.width(), y)
         self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_press(self, event: tk.Event) -> None:
-        """Handle mouse click event to start drawing a box."""
+        """Gestisce il click per iniziare a disegnare una box."""
         self.start_x = event.x
         self.start_y = event.y
         self.current_box = self.canvas.create_rectangle(
@@ -102,7 +109,7 @@ class LabelCreator:
         )
 
     def on_mouse_drag(self, event: tk.Event) -> None:
-        """Handle mouse drag event to update the box size."""
+        """Aggiorna le dimensioni della box durante il trascinamento del mouse."""
         cur_x, cur_y = event.x, event.y
         self.canvas.coords(
             self.current_box,
@@ -116,45 +123,85 @@ class LabelCreator:
         self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_release(self, event: tk.Event) -> None:
-        """Handle mouse release event to finalize the box."""
+        """Finalizza la box al rilascio del pulsante del mouse."""
         end_x = event.x
         end_y = event.y
+        # Coordinate assolute della box (minimi e massimi)
         x1, y1 = self.start_x, self.start_y
         x2, y2 = end_x, end_y
-
-        # Box coordinates
+        abs_coords = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+        # Coordinate relative (normalizzate rispetto alla dimensione dell'immagine)
         center_x = (x1 + x2) / (2 * self.image.width())
         center_y = (y1 + y2) / (2 * self.image.height())
-        width = abs(x2 - x1) / self.image.width()
-        height = abs(y2 - y1) / self.image.height()
+        width_rel = abs(x2 - x1) / self.image.width()
+        height_rel = abs(y2 - y1) / self.image.height()
         box_info = {
             "id": self.current_box,
             "center_x": center_x,
             "center_y": center_y,
-            "width": width,
-            "height": height,
+            "width": width_rel,
+            "height": height_rel,
+            "abs_coords": abs_coords,  # Coordinate assolute per il ritaglio
         }
         self.boxes.append(box_info)
         self.current_box = None
 
+    def save_selected_boxes(self, output_path: pathlib.Path) -> None:
+        """Crea e salva una nuova immagine contenente solo il contenuto delle box selezionate.
+        Le box ritagliate vengono unite orizzontalmente in un'unica immagine.
+        """
+        if not self.boxes:
+            raise ValueError("Nessuna box etichettata.")
+
+        # Apri l'immagine originale usando Pillow
+        original_image = Image.open(self.image_path)
+
+        # Ritaglia l'area di ciascuna box
+        cropped_images = []
+        for box in self.boxes:
+            x1, y1, x2, y2 = box["abs_coords"]
+            cropped = original_image.crop((x1, y1, x2, y2))
+            cropped_images.append(cropped)
+
+        # Calcola le dimensioni della nuova immagine (unione orizzontale)
+        total_width = sum(img.width for img in cropped_images)
+        max_height = max(img.height for img in cropped_images)
+        composite_image = Image.new(
+            "RGB", (total_width, max_height), color=(255, 255, 255)
+        )
+
+        # Incolla ciascun ritaglio nell'immagine composita
+        x_offset = 0
+        for cropped in cropped_images:
+            composite_image.paste(cropped, (x_offset, 0))
+            x_offset += cropped.width
+
+        # Salva l'immagine composita sul percorso specificato
+        composite_image.save(output_path)
+        print(f"Immagine salvata in {output_path}")
+
     def submit(self) -> None:
-        """Submit the labelled boxes and close."""
-        if self.boxes:
+        """Quando viene premuto il pulsante Submit, salva l'immagine contenente
+        solo il contenuto delle box selezionate e chiude l'applicazione.
+        """
+        try:
+            # Specifica il percorso di output dove salvare l'immagine
+            output_path = self.image_path.parent / "boxes_content.jpg"
+            self.save_selected_boxes(output_path)
+        except Exception as e:
+            print(f"Errore durante il salvataggio: {e}")
+        finally:
             self.master.quit()
-            return self.boxes
-        self.master.quit()
-        error_message = "No boxes labelled."
-        raise ValueError(error_message)
 
     def get_boxes(self) -> dict:
         return {box["id"]: box for box in self.boxes}
 
     def undo(self) -> None:
-        """Undo the last labelled box."""
+        """Annulla l'ultima box etichettata."""
         if self.boxes:
             last_box = self.boxes.pop()
             self.canvas.delete(last_box["id"])
 
     def close(self) -> None:
-        """Close the label creator."""
+        """Chiude il Label Creator."""
         self.master.quit()
