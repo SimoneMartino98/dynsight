@@ -58,8 +58,9 @@ def train_model(img_path: pathlib.Path) -> None:
     root.mainloop()
     res = app.get_boxes()
     for key, vals in res.items():
-        print(f"ID: {key}")
         for field, val in vals.items():
+            # Fixed monoclass dataset (multiclass not supported yet)
+            print("0")
             if field in {"center_x", "center_y", "width", "height"}:
-                print(f"{field}: {val}", end="; ")
+                print(f"{val}", end=" ")
         print()
