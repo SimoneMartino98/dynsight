@@ -58,6 +58,8 @@ def train_model(img_path: pathlib.Path) -> None:
     app = LabelCreator(root, img_path)
     root.mainloop()
     res = app.get_boxes()
+
+    # Creating the guess dataset
     guess_dataset_lab_path = Path("dataset_guess/labels/train")
     guess_dataset_img_path = Path("dataset_guess/images/train")
     guess_dataset_img_path.mkdir(parents=True, exist_ok=True)
@@ -71,3 +73,12 @@ def train_model(img_path: pathlib.Path) -> None:
             f.write(
                 f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
             )
+    # Creating the .yaml file for training
+    yaml_file = Path("training_option.yaml", exist_ok=True)
+    with Path.open(yaml_file, "w") as f:
+        f.write(
+            f"train: {guess_dataset_img_path!s}\n"
+            f"val: {guess_dataset_img_path!s}\n"
+            f"nc: 1\n"
+            f"names: ['object']\n"
+        )
