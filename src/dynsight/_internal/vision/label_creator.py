@@ -129,10 +129,6 @@ class LabelCreator:
         height = abs(y2 - y1) / self.image.height()
         box_info = {
             "id": self.current_box,
-            "x1": x1,
-            "y1": y1,
-            "x2": x2,
-            "y2": y2,
             "center_x": center_x,
             "center_y": center_y,
             "width": width,
@@ -150,8 +146,8 @@ class LabelCreator:
         error_message = "No boxes labelled."
         raise ValueError(error_message)
 
-    def get_boxes(self) -> list[dict]:
-        return self.boxes
+    def get_boxes(self) -> dict:
+        return {box["id"]: box for box in self.boxes}
 
     def undo(self) -> None:
         """Undo the last labelled box."""
