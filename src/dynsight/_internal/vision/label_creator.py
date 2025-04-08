@@ -175,7 +175,7 @@ class LabelCreator:
         """
         try:
             # Specifica il percorso di output dove salvare l'immagine
-            output_path = self.image_path.parent / "boxes_content.jpg"
+            output_path = self.image_path.parent / "0.jpg"
             self.save_selected_boxes(output_path)
         except Exception as e:
             print(f"Errore durante il salvataggio: {e}")
