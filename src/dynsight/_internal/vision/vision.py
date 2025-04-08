@@ -5,10 +5,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pathlib
-from pathlib import Path
 
 import cv2
-from ultralytics import YOLO
 
 from .label_creator import LabelCreator
 
@@ -58,78 +56,78 @@ def train_model(img_path: pathlib.Path) -> None:
     root = tk.Tk()
     app = LabelCreator(root, img_path)
     root.mainloop()
-    res = app.get_boxes()
+    # res = app.get_boxes()
     root.destroy()
 
-    # Creating the guess dataset
-    guess_dataset_lab_path_train = Path("dataset_guess/labels/train")
-    guess_dataset_img_path_train = Path("dataset_guess/images/train")
-    guess_dataset_lab_path_val = Path("dataset_guess/labels/val")
-    guess_dataset_img_path_val = Path("dataset_guess/images/val")
+    # # Creating the guess dataset
+    # guess_dataset_lab_path_train = Path("dataset_guess/labels/train")
+    # guess_dataset_img_path_train = Path("dataset_guess/images/train")
+    # guess_dataset_lab_path_val = Path("dataset_guess/labels/val")
+    # guess_dataset_img_path_val = Path("dataset_guess/images/val")
 
-    guess_dataset_img_path_train.mkdir(parents=True, exist_ok=True)
-    guess_dataset_img_path_val.mkdir(parents=True, exist_ok=True)
-    guess_dataset_lab_path_train.mkdir(parents=True, exist_ok=True)
-    guess_dataset_lab_path_val.mkdir(parents=True, exist_ok=True)
+    # guess_dataset_img_path_train.mkdir(parents=True, exist_ok=True)
+    # guess_dataset_img_path_val.mkdir(parents=True, exist_ok=True)
+    # guess_dataset_lab_path_train.mkdir(parents=True, exist_ok=True)
+    # guess_dataset_lab_path_val.mkdir(parents=True, exist_ok=True)
 
-    img_path_2 = Path("output/cutted/0.jpg")
-    if img_path.is_file():
-        destination_train = guess_dataset_img_path_train / img_path_2.name
-        destination_train.write_bytes(img_path_2.read_bytes())
-        destination_val = guess_dataset_img_path_val / img_path_2.name
-        destination_val.write_bytes(img_path_2.read_bytes())
+    # img_path_2 = Path("output/cutted/0.jpg")
+    # if img_path.is_file():
+    #     destination_train = guess_dataset_img_path_train / img_path_2.name
+    #     destination_train.write_bytes(img_path_2.read_bytes())
+    #     destination_val = guess_dataset_img_path_val / img_path_2.name
+    #     destination_val.write_bytes(img_path_2.read_bytes())
 
-    # Splitting labels into train and val
-    res_items = list(res.items())
-    split_index = len(res_items) // 2
-    train_items = res_items[:split_index]
-    val_items = res_items[split_index:]
+    # # Splitting labels into train and val
+    # res_items = list(res.items())
+    # split_index = len(res_items) // 2
+    # train_items = res_items[:split_index]
+    # val_items = res_items[split_index:]
 
-    # Writing train labels
-    output_file_train = guess_dataset_lab_path_train / "0.txt"
-    with output_file_train.open("w") as f:
-        for _, vals in train_items:
-            f.write(
-                f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
-            )
+    # # Writing train labels
+    # output_file_train = guess_dataset_lab_path_train / "0.txt"
+    # with output_file_train.open("w") as f:
+    #     for _, vals in train_items:
+    #         f.write(
+    #             f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
+    #         )
 
-    # Writing val labels
-    output_file_val = guess_dataset_lab_path_val / "0.txt"
-    with output_file_val.open("w") as f:
-        for _, vals in val_items:
-            f.write(
-                f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
-            )
+    # # Writing val labels
+    # output_file_val = guess_dataset_lab_path_val / "0.txt"
+    # with output_file_val.open("w") as f:
+    #     for _, vals in val_items:
+    #         f.write(
+    #             f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
+    #         )
 
-    # Creating the .yaml file for training
-    yaml_file = Path("training_option.yaml")
-    with yaml_file.open("w") as f:
-        f.write(
-            f"train: {guess_dataset_img_path_train!s}\n"
-            f"val: {guess_dataset_img_path_val!s}\n"
-            f"nc: 1\n"
-            f"names: ['object']\n"
-        )
+    # # Creating the .yaml file for training
+    # yaml_file = Path("training_option.yaml")
+    # with yaml_file.open("w") as f:
+    #     f.write(
+    #         f"train: {guess_dataset_img_path_train!s}\n"
+    #         f"val: {guess_dataset_img_path_val!s}\n"
+    #         f"nc: 1\n"
+    #         f"names: ['object']\n"
+    #     )
     # Initial training
-    model = YOLO("yolo12x.pt")
-    model.train(
-        data=yaml_file,  # Path to the dataset configuration file
-        epochs=100,  # Number of training epochs
-        imgsz=1080,  # Image size
-        batch=2,  # Batch size (adjust based on GPU memory)
-        lr0=0.001,  # Initial learning rate
-        lrf=0.01,  # Final learning rate (scheduler)
-        optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
-        augment=True,  # Enable augmentations
-        fliplr=0.5,  # Horizontal flip probability
-        flipud=0.5,  # Vertical flip probability
-        hsv_h=0.015,  # Adjust hue
-        hsv_s=0.7,  # Adjust saturation
-        hsv_v=0.4,  # Adjust brightness
-        mosaic=0.5,  # Enable mosaic augmentation
-        mixup=0.0,  # MixUp augmentation
-        device=[2, 3],  # Use multiple GPUs
-        patience=10,  # Early stopping patience
-        workers=16,  # Number of workers for data loading
-        name="pretrained_model",  # Name for the training run
-    )
+    # model = YOLO("yolo12x.pt")
+    # model.train(
+    #     data=yaml_file,  # Path to the dataset configuration file
+    #     epochs=100,  # Number of training epochs
+    #     imgsz=1080,  # Image size
+    #     batch=2,  # Batch size (adjust based on GPU memory)
+    #     lr0=0.001,  # Initial learning rate
+    #     lrf=0.01,  # Final learning rate (scheduler)
+    #     optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
+    #     augment=True,  # Enable augmentations
+    #     fliplr=0.5,  # Horizontal flip probability
+    #     flipud=0.5,  # Vertical flip probability
+    #     hsv_h=0.015,  # Adjust hue
+    #     hsv_s=0.7,  # Adjust saturation
+    #     hsv_v=0.4,  # Adjust brightness
+    #     mosaic=0.5,  # Enable mosaic augmentation
+    #     mixup=0.0,  # MixUp augmentation
+    #     device=[2, 3],  # Use multiple GPUs
+    #     patience=10,  # Early stopping patience
+    #     workers=16,  # Number of workers for data loading
+    #     name="pretrained_model",  # Name for the training run
+    # )
