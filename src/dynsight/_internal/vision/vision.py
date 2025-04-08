@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     import pathlib
 
 import cv2
+from ultralytics import YOLO
 
 from .label_creator import create_dataset
 
