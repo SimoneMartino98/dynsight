@@ -22,11 +22,27 @@ class LabelCreator:
             None  # verrà impostato al salvataggio dell'immagine mascherata
         )
 
-        # Caricamento immagine
+        # Caricamento e ritaglio immagine
         try:
-            self.image = tk.PhotoImage(file=image_path)
+            # Carica l'immagine originale
+            original_image = Image.open(image_path)
+
+            # Calcola la posizione centrale e ritaglia a 680x680
+            width, height = original_image.size
+            left = (width - 680) // 2
+            top = (height - 680) // 2
+            right = (width + 680) // 2
+            bottom = (height + 680) // 2
+
+            cropped_image = original_image.crop((left, top, right, bottom))
+
+            # Ridimensiona a 680x680 (se necessario)
+            cropped_image = cropped_image.resize((680, 680))
+
+            # Conversione in formato Tkinter
+            self.image = Image.PhotoImage(cropped_image)
         except Exception as e:
-            error_message = f"Error loading image: {e}"
+            error_message = f"Error loading and cropping image: {e}"
             raise ValueError(error_message) from e
             self.master.quit()
             return

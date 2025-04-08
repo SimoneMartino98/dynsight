@@ -63,7 +63,7 @@ def train_model(
     model.train(
         data=yaml_file,  # Path to the dataset configuration file
         epochs=100,  # Number of training epochs
-        imgsz=1080,  # Image size
+        imgsz=680,  # Image size
         batch=2,  # Batch size (adjust based on GPU memory)
         lr0=0.001,  # Initial learning rate
         lrf=0.01,  # Final learning rate (scheduler)
