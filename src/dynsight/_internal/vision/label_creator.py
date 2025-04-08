@@ -236,8 +236,8 @@ def create_dataset(
     img_val_folder = dataset_base / "images" / "val"
 
     # Definisce i percorsi per le immagini mascherate (TRAIN e VALIDATION)
-    train_target = img_train_folder / (train_img_path.stem + "_masked.jpg")
-    val_target = img_val_folder / (val_img_path.stem + "_masked.jpg")
+    train_target = img_train_folder / (train_img_path.stem + ".jpg")
+    val_target = img_val_folder / (val_img_path.stem + ".jpg")
 
     print("Etichettare l'immagine di TRAIN:")
     train_boxes, train_masked = label_image(train_img_path, train_target)
