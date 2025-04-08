@@ -263,7 +263,7 @@ def create_dataset(
             )
 
     # Scrittura dei file di etichette per VALIDATION
-    output_file_val = lab_val / "0.txt"
+    output_file_val = lab_val / "1.txt"
     with output_file_val.open("w") as f:
         for _, box in val_boxes.items():
             f.write(
