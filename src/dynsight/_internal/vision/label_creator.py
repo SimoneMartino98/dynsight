@@ -1,18 +1,20 @@
 import pathlib
 import tkinter as tk
-from pathlib import Path
 
-from PIL import (
-    Image,  # Assicurati di avere installato Pillow (pip install pillow)
-)
+import albumentations as A
+import cv2
+import numpy as np
+from PIL import Image
 
 
+# Modifica della classe LabelCreator
 class LabelCreator:
     def __init__(
         self,
         master: tk.Tk,
         image_path: pathlib.Path,
         target_output: pathlib.Path = None,
+        augmentations: int = 5,  # numero di duplicati che vuoi generare
     ) -> None:
         self.master = master
         self.master.title("Dynsight: Label Creator")
@@ -21,6 +23,7 @@ class LabelCreator:
         self.masked_image_path = (
             None  # verrà impostato al salvataggio dell'immagine mascherata
         )
+        self.augmentations = augmentations
 
         # Caricamento immagine
         try:
@@ -45,6 +48,7 @@ class LabelCreator:
         )
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
+
         # Linee guida per il cursore
         self.h_line = self.canvas.create_line(
             0, 0, self.image.width(), 0, fill="blue", dash=(2, 2), width=3
@@ -98,6 +102,25 @@ class LabelCreator:
         self.canvas.bind("<ButtonRelease-1>", self.on_click_release)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<Motion>", self.follow_mouse)
+
+        # Augmentation pipeline
+        self.transform = A.Compose(
+            [
+                A.HorizontalFlip(p=0.5),
+                A.RandomBrightnessContrast(p=0.5),
+                A.ShiftScaleRotate(
+                    shift_limit=0.05, scale_limit=0.1, rotate_limit=15, p=0.5
+                ),
+                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+                A.HueSaturationValue(
+                    hue_shift_limit=10,
+                    sat_shift_limit=15,
+                    val_shift_limit=10,
+                    p=0.3,
+                ),
+                A.MotionBlur(p=0.2),
+            ]
+        )
 
     def follow_mouse(self, event: tk.Event) -> None:
         """Aggiorna le linee guida per seguire il cursore."""
@@ -171,8 +194,36 @@ class LabelCreator:
         output_image.save(output_path)
         print(f"Immagine mascherata salvata in {output_path}")
 
+    def augment_and_save(
+        self, image: np.array, boxes: list, output_folder: pathlib.Path
+    ) -> None:
+        """Genera versioni augmentate dell'immagine e salva insieme alle annotazioni YOLO."""
+        for i in range(self.augmentations):
+            augmented = self.transform(image=image)
+            aug_image = augmented["image"]
+            aug_boxes = augmented["bboxes"]
+
+            # Salva immagine
+            aug_image_path = (
+                output_folder / f"{self.image_path.stem}_aug_{i:02d}.jpg"
+            )
+            cv2.imwrite(
+                str(aug_image_path), cv2.cvtColor(aug_image, cv2.COLOR_RGB2BGR)
+            )
+            print(f"Salvata: {aug_image_path}")
+
+            # Salva file di annotazione YOLO
+            aug_txt_path = (
+                output_folder / f"{self.image_path.stem}_aug_{i:02d}.txt"
+            )
+            with open(aug_txt_path, "w") as f:
+                for box in aug_boxes:
+                    center_x, center_y, width, height = box
+                    f.write(f"0 {center_x} {center_y} {width} {height}\n")
+            print(f"Salvato: {aug_txt_path}")
+
     def submit(self) -> None:
-        """Alla pressione di Submit, salva l'immagine mascherata direttamente nel target specificato e chiude la GUI."""
+        """Alla pressione di Submit, salva l'immagine mascherata e chiude la GUI."""
         try:
             if self.target_output is None:
                 # Comportamento di default: usa la cartella 'cutted'
@@ -183,6 +234,10 @@ class LabelCreator:
 
             self.save_selected_boxes(output_path)
             self.masked_image_path = output_path  # salva il percorso
+            # Augmenta e salva le versioni
+            self.augment_and_save(
+                np.array(self.image), self.boxes, self.target_output
+            )
         except Exception as e:
             print(
                 f"Errore durante il salvataggio dell'immagine mascherata: {e}"
@@ -206,76 +261,18 @@ class LabelCreator:
 
 
 def label_image(
-    image_path: pathlib.Path, target_output: pathlib.Path = None
+    image_path: pathlib.Path,
+    target_output: pathlib.Path = None,
+    augmentations: int = 5,
 ) -> (dict, pathlib.Path):
     """Avvia la GUI per etichettare l'immagine e restituisce:
     - Il dizionario delle box etichettate
     - Il percorso dell'immagine mascherata salvata
     """
     root = tk.Tk()
-    creator = LabelCreator(root, image_path, target_output)
+    creator = LabelCreator(root, image_path, target_output, augmentations)
     root.mainloop()
     boxes = creator.get_boxes()
     masked_image = creator.masked_image_path
     root.destroy()
     return boxes, masked_image
-
-
-def create_dataset(
-    train_img_path: pathlib.Path, val_img_path: pathlib.Path
-) -> None:
-    """Per due immagini (TRAIN e VALIDATION) etichettate separatamente, crea il dataset YOLO:
-    - Avvia le sessioni di etichettatura indicando direttamente il percorso di salvataggio finale
-    - Crea le cartelle (images/train, images/val, labels/train, labels/val)
-    - Le immagini mascherate vengono salvate direttamente nella destinazione finale
-    - Scrive i file delle etichette e il file YAML per il training
-    """
-    dataset_base = pathlib.Path("dataset_guess")
-    # Cartelle di destinazione per le immagini
-    img_train_folder = dataset_base / "images" / "train"
-    img_val_folder = dataset_base / "images" / "val"
-
-    # Definisce i percorsi per le immagini mascherate (TRAIN e VALIDATION)
-    train_target = img_train_folder / (train_img_path.stem + ".jpg")
-    val_target = img_val_folder / (val_img_path.stem + ".jpg")
-
-    print("Etichettare l'immagine di TRAIN:")
-    train_boxes, train_masked = label_image(train_img_path, train_target)
-    print("Etichettare l'immagine di VALIDATION:")
-    val_boxes, val_masked = label_image(val_img_path, val_target)
-
-    # Cartelle per le etichette
-    lab_train = dataset_base / "labels" / "train"
-    lab_val = dataset_base / "labels" / "val"
-    for path in [img_train_folder, img_val_folder, lab_train, lab_val]:
-        path.mkdir(parents=True, exist_ok=True)
-
-    # Non c'è necessità di copiare le immagini:
-    # train_masked e val_masked sono già salvate nelle cartelle giuste.
-
-    # Scrittura dei file di etichette per TRAIN
-    output_file_train = lab_train / "0.txt"
-    with output_file_train.open("w") as f:
-        for _, box in train_boxes.items():
-            f.write(
-                f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
-                f"{box['width']:.6f} {box['height']:.6f}\n"
-            )
-
-    # Scrittura dei file di etichette per VALIDATION
-    output_file_val = lab_val / "1.txt"
-    with output_file_val.open("w") as f:
-        for _, box in val_boxes.items():
-            f.write(
-                f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
-                f"{box['width']:.6f} {box['height']:.6f}\n"
-            )
-
-    # Creazione del file YAML per la configurazione del training YOLO
-    yaml_file = Path("dataset_guess.yaml")
-    with yaml_file.open("w") as f:
-        f.write(f"train: {img_train_folder!s}\n")
-        f.write(f"val: {img_val_folder!s}\n")
-        f.write("nc: 1\n")
-        f.write("names: ['object']\n")
-    print("Dataset e file YAML creati correttamente.")
