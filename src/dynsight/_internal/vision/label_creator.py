@@ -55,7 +55,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(flag=False)
 
-        # Pulsante Submit
+        # Pulsante Submit: termina l'etichettatura e chiude la finestra
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -174,80 +174,11 @@ class LabelCreator:
         output_image.save(output_path)
         print(f"Immagine salvata in {output_path}")
 
-    def create_dataset(self, cutted_image_path: pathlib.Path) -> None:
-        """Crea il dataset per il training YOLO:
-        - Crea le directory per le immagini e le etichette (train e val)
-        - Copia l'immagine tagliata nelle directory delle immagini
-        - Suddivide le etichette in train e val
-        - Crea un file YAML per la configurazione del training
-        """
-        # Percorsi di base per il dataset
-        dataset_base = pathlib.Path("dataset_guess")
-        yaml_file = pathlib.Path("dataset_guess.yaml")
-        img_train = dataset_base / "images" / "train"
-        img_val = dataset_base / "images" / "val"
-        lab_train = dataset_base / "labels" / "train"
-        lab_val = dataset_base / "labels" / "val"
-
-        # Creazione delle directory, se non esistono
-        for path in [img_train, img_val, lab_train, lab_val]:
-            path.mkdir(parents=True, exist_ok=True)
-
-        # Copia dell'immagine ritagliata, se esiste
-        if cutted_image_path.is_file():
-            destination_train = img_train / cutted_image_path.name
-            destination_val = img_val / cutted_image_path.name
-            destination_train.write_bytes(cutted_image_path.read_bytes())
-            destination_val.write_bytes(cutted_image_path.read_bytes())
-
-        # Ottiene le box etichettate e le suddivide in due metà per train/val
-        boxes_list = list(self.get_boxes().values())
-        split_index = len(boxes_list) // 2
-        train_boxes = boxes_list[:split_index]
-        val_boxes = boxes_list[split_index:]
-
-        # Scrittura del file di etichette per il training (train/0.txt)
-        output_file_train = lab_train / "0.txt"
-        with output_file_train.open("w") as f:
-            for box in train_boxes:
-                f.write(
-                    f"0 {box['center_x']:.6f} {box['center_y']:.6f} {box['width']:.6f} {box['height']:.6f}\n"
-                )
-
-        # Scrittura del file di etichette per la validazione (val/0.txt)
-        output_file_val = lab_val / "0.txt"
-        with output_file_val.open("w") as f:
-            for box in val_boxes:
-                f.write(
-                    f"0 {box['center_x']:.6f} {box['center_y']:.6f} {box['width']:.6f} {box['height']:.6f}\n"
-                )
-
-        # Creazione del file YAML con le opzioni di training
-        with yaml_file.open("w") as f:
-            f.write(f"train: {img_train!s}\n")
-            f.write(f"val: {img_val!s}\n")
-            f.write("nc: 1\n")
-            f.write("names: ['object']\n")
-        print("Dataset e file YAML creati correttamente.")
-
     def submit(self) -> None:
-        """Quando viene premuto il pulsante Submit:
-        - Salva l'immagine contenente solo il contenuto delle box selezionate
-        - Crea il dataset per il training YOLO
-        - Chiude l'applicazione
+        """Quando viene premuto il pulsante Submit, termina la sessione di etichettatura
+        e chiude l'applicazione.
         """
-        try:
-            output_path = self.image_path.parent / "cutted" / "0.jpg"
-            # Assicurati che la directory 'cutted' esista
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            self.save_selected_boxes(output_path)
-            self.create_dataset(output_path)
-        except Exception as e:
-            print(
-                f"Errore durante il salvataggio o la creazione del dataset: {e}"
-            )
-        finally:
-            self.master.quit()
+        self.master.quit()
 
     def get_boxes(self) -> dict:
         """Restituisce le box etichettate in forma di dizionario."""
@@ -262,3 +193,77 @@ class LabelCreator:
     def close(self) -> None:
         """Chiude l'applicazione."""
         self.master.quit()
+
+
+def label_image(image_path: pathlib.Path) -> dict:
+    """Avvia l'interfaccia grafica per etichettare l'immagine specificata
+    e restituisce il dizionario di box creato.
+    """
+    root = tk.Tk()
+    creator = LabelCreator(root, image_path)
+    root.mainloop()
+    boxes = creator.get_boxes()
+    root.destroy()
+    return boxes
+
+
+def create_dataset(
+    train_img_path: pathlib.Path, val_img_path: pathlib.Path
+) -> None:
+    """Utilizza due immagini (una per train e una per validation) e i rispettivi set di label
+    per creare la struttura del dataset YOLO:
+    - Crea le directory per immagini ed etichette (train e val)
+    - Copia le immagini nelle rispettive cartelle
+    - Scrive i file di label per train e validation
+    - Crea un file YAML per la configurazione del training
+    """
+    # Etichetta le immagini separatamente
+    print("Etichettare l'immagine di TRAIN:")
+    train_boxes = label_image(train_img_path)
+    print("Etichettare l'immagine di VALIDATION:")
+    val_boxes = label_image(val_img_path)
+
+    # Percorsi di base del dataset
+    dataset_base = pathlib.Path("dataset_guess")
+    yaml_file = dataset_base / "dataset_guess.yaml"
+    img_train = dataset_base / "images" / "train"
+    img_val = dataset_base / "images" / "val"
+    lab_train = dataset_base / "labels" / "train"
+    lab_val = dataset_base / "labels" / "val"
+
+    # Creazione delle directory se non esistono
+    for path in [img_train, img_val, lab_train, lab_val]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    # Copia delle immagini
+    if train_img_path.is_file():
+        destination_train = img_train / train_img_path.name
+        destination_train.write_bytes(train_img_path.read_bytes())
+
+    if val_img_path.is_file():
+        destination_val = img_val / val_img_path.name
+        destination_val.write_bytes(val_img_path.read_bytes())
+
+    # Scrittura file di etichette per l'immagine di TRAIN (es. train/0.txt)
+    output_file_train = lab_train / "0.txt"
+    with output_file_train.open("w") as f:
+        for _, box in train_boxes.items():
+            f.write(
+                f"0 {box['center_x']:.6f} {box['center_y']:.6f} {box['width']:.6f} {box['height']:.6f}\n"
+            )
+
+    # Scrittura file di etichette per l'immagine di VALIDATION (es. val/0.txt)
+    output_file_val = lab_val / "0.txt"
+    with output_file_val.open("w") as f:
+        for _, box in val_boxes.items():
+            f.write(
+                f"0 {box['center_x']:.6f} {box['center_y']:.6f} {box['width']:.6f} {box['height']:.6f}\n"
+            )
+
+    # Creazione del file YAML con le opzioni di training YOLO
+    with yaml_file.open("w") as f:
+        f.write(f"train: {img_train!s}\n")
+        f.write(f"val: {img_val!s}\n")
+        f.write("nc: 1\n")
+        f.write("names: ['object']\n")
+    print("Dataset e file YAML creati correttamente.")

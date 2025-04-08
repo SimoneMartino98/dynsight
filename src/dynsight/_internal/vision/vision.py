@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tkinter as tk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -51,13 +50,13 @@ def extract_frames(
         cv2.imwrite(str(output_path / f"{index}.png"), frame)
 
 
-def train_model(img_path: pathlib.Path) -> None:
+def train_model(
+    train_img_path: pathlib.Path, val_img_path: pathlib.Path
+) -> None:
     """Train a model using the provided image path."""
-    root = tk.Tk()
-    app = LabelCreator(root, img_path)
-    root.mainloop()
-    # res = app.get_boxes()
-    root.destroy()
+    # Avvia il processo di etichettatura e creazione del dataset.
+    # La funzione create_dataset si occuperà di chiamare l'interfaccia grafica per ciascuna immagine.
+    LabelCreator.create_dataset(train_img_path, val_img_path)
 
     # # Creating the guess dataset
     # guess_dataset_lab_path_train = Path("dataset_guess/labels/train")
