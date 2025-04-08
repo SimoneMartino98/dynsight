@@ -183,6 +183,7 @@ class LabelCreator:
         """
         # Percorsi di base per il dataset
         dataset_base = pathlib.Path("dataset_guess")
+        yaml_file = pathlib.Path("dataset_guess.yaml")
         img_train = dataset_base / "images" / "train"
         img_val = dataset_base / "images" / "val"
         lab_train = dataset_base / "labels" / "train"
@@ -222,7 +223,6 @@ class LabelCreator:
                 )
 
         # Creazione del file YAML con le opzioni di training
-        yaml_file = self.image_path.parent / "training_option.yaml"
         with yaml_file.open("w") as f:
             f.write(f"train: {img_train!s}\n")
             f.write(f"val: {img_val!s}\n")
