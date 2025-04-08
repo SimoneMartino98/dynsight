@@ -40,7 +40,7 @@ class LabelCreator:
             cropped_image = cropped_image.resize((680, 680))
 
             # Conversione in formato Tkinter
-            self.image = Image.PhotoImage(cropped_image)
+            self.image = tk.PhotoImage(cropped_image)
         except Exception as e:
             error_message = f"Error loading and cropping image: {e}"
             raise ValueError(error_message) from e
