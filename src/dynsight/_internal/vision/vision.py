@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 import cv2
 
-from .label_creator import LabelCreator
+from .label_creator import create_dataset
 
 
 def extract_frames(
@@ -56,7 +56,7 @@ def train_model(
     """Train a model using the provided image path."""
     # Avvia il processo di etichettatura e creazione del dataset.
     # La funzione create_dataset si occuperà di chiamare l'interfaccia grafica per ciascuna immagine.
-    LabelCreator.create_dataset(train_img_path, val_img_path)
+    create_dataset(train_img_path, val_img_path)
 
     # # Creating the guess dataset
     # guess_dataset_lab_path_train = Path("dataset_guess/labels/train")
