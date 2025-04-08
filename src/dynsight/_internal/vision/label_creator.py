@@ -1,4 +1,5 @@
 import pathlib
+import random
 import tkinter as tk
 from pathlib import Path
 
@@ -149,60 +150,6 @@ class LabelCreator:
         self.boxes.append(box_info)
         self.current_box = None
 
-    def create_collage(self) -> None:
-        """Crea un collage casuale con le immagini ritagliate."""
-        collage_size = (1080, 1080)
-        collage = Image.new("RGB", collage_size, "white")
-        used_positions = []
-
-        cropped_dir = Path("cropped_selection")
-        if not cropped_dir.exists():
-            print("No cropped images found.")
-            return
-
-        cropped_images = list(cropped_dir.glob("*.png"))
-        if not cropped_images:
-            print("No cropped images found.")
-            return
-
-        for cropped_image_path in cropped_images:
-            cropped_image = Image.open(cropped_image_path)
-            cropped_image.thumbnail(
-                (200, 200)
-            )  # Resize to fit within the collage
-
-            max_attempts = 100
-            for _ in range(max_attempts):
-                x = random.randint(0, collage_size[0] - cropped_image.width)
-                y = random.randint(0, collage_size[1] - cropped_image.height)
-                new_box = (
-                    x,
-                    y,
-                    x + cropped_image.width,
-                    y + cropped_image.height,
-                )
-
-                # Check for overlap
-                if all(
-                    not (
-                        new_box[0] < pos[2]
-                        and new_box[2] > pos[0]
-                        and new_box[1] < pos[3]
-                        and new_box[3] > pos[1]
-                    )
-                    for pos in used_positions
-                ):
-                    used_positions.append(new_box)
-                    collage.paste(cropped_image, (x, y))
-                    break
-            else:
-                print(
-                    f"Could not place image {cropped_image_path} without overlap."
-                )
-
-        collage.save("collage.png")
-        print("Collage saved as collage.png")
-
     def submit(self) -> None:
         # Salva tutte le porzioni di immagine al submit
         pil_image = Image.open(self.image_path)
@@ -213,7 +160,63 @@ class LabelCreator:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
-        create_collage()
+
+            collage_size = (1080, 1080)
+            collage = Image.new("RGB", collage_size, "white")
+            used_positions = []
+
+            cropped_dir = Path("cropped_selection")
+            if not cropped_dir.exists():
+                print("No cropped images found.")
+                return
+
+            cropped_images = list(cropped_dir.glob("*.png"))
+            if not cropped_images:
+                print("No cropped images found.")
+                return
+
+            for cropped_image_path in cropped_images:
+                cropped_image = Image.open(cropped_image_path)
+                cropped_image.thumbnail(
+                    (200, 200)
+                )  # Resize to fit within the collage
+
+                max_attempts = 100
+                for _ in range(max_attempts):
+                    x = random.randint(
+                        0, collage_size[0] - cropped_image.width
+                    )
+                    y = random.randint(
+                        0, collage_size[1] - cropped_image.height
+                    )
+                    new_box = (
+                        x,
+                        y,
+                        x + cropped_image.width,
+                        y + cropped_image.height,
+                    )
+
+                    # Check for overlap
+                    if all(
+                        not (
+                            new_box[0] < pos[2]
+                            and new_box[2] > pos[0]
+                            and new_box[1] < pos[3]
+                            and new_box[3] > pos[1]
+                        )
+                        for pos in used_positions
+                    ):
+                        used_positions.append(new_box)
+                        collage.paste(cropped_image, (x, y))
+                        break
+                else:
+                    print(
+                        f"Could not place image {cropped_image_path} without overlap."
+                    )
+
+            collage.save("collage.png")
+            print("Collage saved as collage.png")
+
         self.master.quit()
 
     def undo(self) -> None:
