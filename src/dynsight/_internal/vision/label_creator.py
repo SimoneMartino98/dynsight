@@ -1,5 +1,6 @@
 import pathlib
 import tkinter as tk
+from pathlib import Path
 
 from PIL import (
     Image,  # Assicurati di avere installato Pillow (pip install pillow)
@@ -271,7 +272,7 @@ def create_dataset(
             )
 
     # Creazione del file YAML per la configurazione del training YOLO
-    yaml_file = "dataset_guess.yaml"
+    yaml_file = Path("dataset_guess.yaml")
     with yaml_file.open("w") as f:
         f.write(f"train: {img_train_folder!s}\n")
         f.write(f"val: {img_val_folder!s}\n")
