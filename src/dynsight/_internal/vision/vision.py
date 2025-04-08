@@ -65,10 +65,8 @@ def train_model(
         epochs=100,  # Number of training epochs
         imgsz=680,  # Image size
         batch=2,  # Batch size (adjust based on GPU memory)
-        lr0=0.001,  # Initial learning rate
-        lrf=0.01,  # Final learning rate (scheduler)
         optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
-        augment=True,  # Enable augmentations
+        augment=False,  # Enable augmentations
         fliplr=1.0,  # Horizontal flip probability
         flipud=1.0,  # Vertical flip probability
         hsv_h=0.015,  # Adjust hue
@@ -80,4 +78,10 @@ def train_model(
         patience=10,  # Early stopping patience
         workers=16,  # Number of workers for data loading
         name="pretrained_model",  # Name for the training run
+        weight_decay=0.0,
+        dropout=0.0,  # Disabilita il dropout
+        lr0=0.01,  # Imposta un learning rate iniziale elevato
+        lrf=0.01,  # Imposta un learning rate finale basso
+        warmup_epochs=3,  # Numero di epoche di warm-up
+        cos_lr=True,  # Abilita la riduzione cosenoide del learning rate
     )
