@@ -56,60 +56,8 @@ def train_model(
     val_img_path: pathlib.Path,
     yaml_file: pathlib.Path,
 ) -> None:
-    """Train a model using the provided image path."""
-    # Avvia il processo di etichettatura e creazione del dataset.
-    # La funzione create_dataset si occuperà di chiamare l'interfaccia grafica per ciascuna immagine.
     create_dataset(train_img_path, val_img_path)
 
-    # # Creating the guess dataset
-    # guess_dataset_lab_path_train = Path("dataset_guess/labels/train")
-    # guess_dataset_img_path_train = Path("dataset_guess/images/train")
-    # guess_dataset_lab_path_val = Path("dataset_guess/labels/val")
-    # guess_dataset_img_path_val = Path("dataset_guess/images/val")
-
-    # guess_dataset_img_path_train.mkdir(parents=True, exist_ok=True)
-    # guess_dataset_img_path_val.mkdir(parents=True, exist_ok=True)
-    # guess_dataset_lab_path_train.mkdir(parents=True, exist_ok=True)
-    # guess_dataset_lab_path_val.mkdir(parents=True, exist_ok=True)
-
-    # img_path_2 = Path("output/cutted/0.jpg")
-    # if img_path.is_file():
-    #     destination_train = guess_dataset_img_path_train / img_path_2.name
-    #     destination_train.write_bytes(img_path_2.read_bytes())
-    #     destination_val = guess_dataset_img_path_val / img_path_2.name
-    #     destination_val.write_bytes(img_path_2.read_bytes())
-
-    # # Splitting labels into train and val
-    # res_items = list(res.items())
-    # split_index = len(res_items) // 2
-    # train_items = res_items[:split_index]
-    # val_items = res_items[split_index:]
-
-    # # Writing train labels
-    # output_file_train = guess_dataset_lab_path_train / "0.txt"
-    # with output_file_train.open("w") as f:
-    #     for _, vals in train_items:
-    #         f.write(
-    #             f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
-    #         )
-
-    # # Writing val labels
-    # output_file_val = guess_dataset_lab_path_val / "0.txt"
-    # with output_file_val.open("w") as f:
-    #     for _, vals in val_items:
-    #         f.write(
-    #             f"0 {vals['center_x']:.6f} {vals['center_y']:.6f} {vals['width']:.6f} {vals['height']:.6f}\n"
-    #         )
-
-    # # Creating the .yaml file for training
-    # yaml_file = Path("training_option.yaml")
-    # with yaml_file.open("w") as f:
-    #     f.write(
-    #         f"train: {guess_dataset_img_path_train!s}\n"
-    #         f"val: {guess_dataset_img_path_val!s}\n"
-    #         f"nc: 1\n"
-    #         f"names: ['object']\n"
-    #     )
     # Initial training
     model = YOLO("yolo12x.pt")
     model.train(
