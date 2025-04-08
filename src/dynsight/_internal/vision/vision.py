@@ -80,4 +80,5 @@ def train_model(
         patience=10,  # Early stopping patience
         workers=16,  # Number of workers for data loading
         name="pretrained_model",  # Name for the training run
+        pretrained=False,
     )
