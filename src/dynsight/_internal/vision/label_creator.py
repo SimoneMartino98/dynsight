@@ -7,12 +7,18 @@ from PIL import (
 
 
 class LabelCreator:
-    def __init__(self, master: tk.Tk, image_path: pathlib.Path) -> None:
+    def __init__(
+        self,
+        master: tk.Tk,
+        image_path: pathlib.Path,
+        target_output: pathlib.Path = None,
+    ) -> None:
         self.master = master
         self.master.title("Dynsight: Label Creator")
         self.image_path = image_path  # percorso originale
+        self.target_output = target_output  # percorso di destinazione per l'immagine mascherata (se fornito)
         self.masked_image_path = (
-            None  # qui salveremo il percorso dell'immagine mascherata
+            None  # verrà impostato al salvataggio dell'immagine mascherata
         )
 
         # Caricamento immagine
@@ -26,8 +32,8 @@ class LabelCreator:
 
         # Configurazione della griglia principale
         self.master.rowconfigure(0, weight=1)
-        self.master.columnconfigure(0, weight=1)  # Immagine
-        self.master.columnconfigure(1, weight=1)  # Sidebar
+        self.master.columnconfigure(0, weight=1)  # Colonna per l'immagine
+        self.master.columnconfigure(1, weight=1)  # Colonna per la sidebar
 
         # Canvas per l'immagine
         self.canvas = tk.Canvas(
@@ -72,7 +78,7 @@ class LabelCreator:
         )
         self.undo_button.pack(pady=10, fill="x")
 
-        # Pulsante Close per chiudere l'applicazione senza salvare
+        # Pulsante Close per chiudere senza salvare
         self.close_button = tk.Button(
             self.sidebar,
             text="Close",
@@ -80,7 +86,7 @@ class LabelCreator:
         )
         self.close_button.pack(pady=10, fill="x")
 
-        # Variabili per il labelling
+        # Variabili per la gestione dell'etichettatura
         self.start_x = None
         self.start_y = None
         self.current_box = None
@@ -147,7 +153,7 @@ class LabelCreator:
         self.current_box = None
 
     def save_selected_boxes(self, output_path: pathlib.Path) -> None:
-        """Crea un'immagine mascherata copiando solo le parti selezionate su sfondo bianco."""
+        """Crea e salva l'immagine mascherata, copiando solo le parti selezionate su sfondo bianco."""
         if not self.boxes:
             raise ValueError("Nessuna box etichettata.")
 
@@ -165,15 +171,17 @@ class LabelCreator:
         print(f"Immagine mascherata salvata in {output_path}")
 
     def submit(self) -> None:
-        """Alla pressione di Submit, salva l'immagine mascherata e chiude la GUI."""
+        """Alla pressione di Submit, salva l'immagine mascherata direttamente nel target specificato e chiude la GUI."""
         try:
-            # Usa un nome diverso in base all'immagine (es. stem + _masked.jpg)
-            masked_name = self.image_path.stem + "_masked.jpg"
-            output_path = self.image_path.parent / "cutted" / masked_name
+            if self.target_output is None:
+                # Comportamento di default: usa la cartella 'cutted'
+                masked_name = self.image_path.stem + "_masked.jpg"
+                output_path = self.image_path.parent / "cutted" / masked_name
+            else:
+                output_path = self.target_output
+
             self.save_selected_boxes(output_path)
-            self.masked_image_path = (
-                output_path  # memorizza il percorso dell'immagine mascherata
-            )
+            self.masked_image_path = output_path  # salva il percorso
         except Exception as e:
             print(
                 f"Errore durante il salvataggio dell'immagine mascherata: {e}"
@@ -196,13 +204,15 @@ class LabelCreator:
         self.master.quit()
 
 
-def label_image(image_path: pathlib.Path) -> (dict, pathlib.Path):
+def label_image(
+    image_path: pathlib.Path, target_output: pathlib.Path = None
+) -> (dict, pathlib.Path):
     """Avvia la GUI per etichettare l'immagine e restituisce:
     - Il dizionario delle box etichettate
     - Il percorso dell'immagine mascherata salvata
     """
     root = tk.Tk()
-    creator = LabelCreator(root, image_path)
+    creator = LabelCreator(root, image_path, target_output)
     root.mainloop()
     boxes = creator.get_boxes()
     masked_image = creator.masked_image_path
@@ -214,42 +224,35 @@ def create_dataset(
     train_img_path: pathlib.Path, val_img_path: pathlib.Path
 ) -> None:
     """Per due immagini (TRAIN e VALIDATION) etichettate separatamente, crea il dataset YOLO:
-    - Avvia le sessioni di etichettatura e ottiene le rispettive box e immagini mascherate
+    - Avvia le sessioni di etichettatura indicando direttamente il percorso di salvataggio finale
     - Crea le cartelle (images/train, images/val, labels/train, labels/val)
-    - Copia le immagini mascherate nelle rispettive cartelle
-    - Scrive i file delle etichette e il file YAML
+    - Le immagini mascherate vengono salvate direttamente nella destinazione finale
+    - Scrive i file delle etichette e il file YAML per il training
     """
-    print("Etichettare l'immagine di TRAIN:")
-    train_boxes, train_masked = label_image(train_img_path)
-    print("Etichettare l'immagine di VALIDATION:")
-    val_boxes, val_masked = label_image(val_img_path)
-
-    # Percorsi di base per il dataset
     dataset_base = pathlib.Path("dataset_guess")
-    yaml_file = dataset_base / "dataset_guess.yaml"
-    img_train = dataset_base / "images" / "train"
-    img_val = dataset_base / "images" / "val"
+    # Cartelle di destinazione per le immagini
+    img_train_folder = dataset_base / "images" / "train"
+    img_val_folder = dataset_base / "images" / "val"
+
+    # Definisce i percorsi per le immagini mascherate (TRAIN e VALIDATION)
+    train_target = img_train_folder / (train_img_path.stem + "_masked.jpg")
+    val_target = img_val_folder / (val_img_path.stem + "_masked.jpg")
+
+    print("Etichettare l'immagine di TRAIN:")
+    train_boxes, train_masked = label_image(train_img_path, train_target)
+    print("Etichettare l'immagine di VALIDATION:")
+    val_boxes, val_masked = label_image(val_img_path, val_target)
+
+    # Cartelle per le etichette
     lab_train = dataset_base / "labels" / "train"
     lab_val = dataset_base / "labels" / "val"
-
-    # Creazione delle directory
-    for path in [img_train, img_val, lab_train, lab_val]:
+    for path in [img_train_folder, img_val_folder, lab_train, lab_val]:
         path.mkdir(parents=True, exist_ok=True)
 
-    # Copia delle immagini mascherate (non quelle originali)
-    if train_masked is not None and train_masked.is_file():
-        destination_train = img_train / train_masked.name
-        destination_train.write_bytes(train_masked.read_bytes())
-    else:
-        print("Avviso: Immagine mascherata TRAIN non trovata.")
+    # Non c'è necessità di copiare le immagini:
+    # train_masked e val_masked sono già salvate nelle cartelle giuste.
 
-    if val_masked is not None and val_masked.is_file():
-        destination_val = img_val / val_masked.name
-        destination_val.write_bytes(val_masked.read_bytes())
-    else:
-        print("Avviso: Immagine mascherata VALIDATION non trovata.")
-
-    # Scrittura dei file di etichette
+    # Scrittura dei file di etichette per TRAIN
     output_file_train = lab_train / "0.txt"
     with output_file_train.open("w") as f:
         for _, box in train_boxes.items():
@@ -258,6 +261,7 @@ def create_dataset(
                 f"{box['width']:.6f} {box['height']:.6f}\n"
             )
 
+    # Scrittura dei file di etichette per VALIDATION
     output_file_val = lab_val / "0.txt"
     with output_file_val.open("w") as f:
         for _, box in val_boxes.items():
@@ -266,10 +270,11 @@ def create_dataset(
                 f"{box['width']:.6f} {box['height']:.6f}\n"
             )
 
-    # Creazione del file YAML
+    # Creazione del file YAML per la configurazione del training YOLO
+    yaml_file = dataset_base / "dataset_guess.yaml"
     with yaml_file.open("w") as f:
-        f.write(f"train: {img_train!s}\n")
-        f.write(f"val: {img_val!s}\n")
+        f.write(f"train: {img_train_folder!s}\n")
+        f.write(f"val: {img_val_folder!s}\n")
         f.write("nc: 1\n")
         f.write("names: ['object']\n")
     print("Dataset e file YAML creati correttamente.")
