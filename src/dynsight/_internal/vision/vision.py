@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pathlib
 
-import cv2
-from ultralytics import YOLO
+import tkinter as tk
 
-from .label_creator import create_dataset
+import cv2
+
+from .label_creator import LabelCreator
 
 
 def extract_frames(
@@ -52,36 +53,8 @@ def extract_frames(
 
 
 def train_model(
-    train_img_path: pathlib.Path,
-    val_img_path: pathlib.Path,
-    yaml_file: pathlib.Path,
+    img_path: pathlib.Path,
 ) -> None:
-    create_dataset(train_img_path, val_img_path)
-
-    # Initial training
-    model = YOLO("yolo12x.pt")
-    model.train(
-        data=yaml_file,  # Path to the dataset configuration file
-        epochs=100,  # Number of training epochs
-        imgsz=680,  # Image size
-        batch=2,  # Batch size (adjust based on GPU memory)
-        optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
-        augment=False,  # Enable augmentations
-        fliplr=1.0,  # Horizontal flip probability
-        flipud=1.0,  # Vertical flip probability
-        hsv_h=0.015,  # Adjust hue
-        hsv_s=0.7,  # Adjust saturation
-        hsv_v=0.4,  # Adjust brightness
-        mosaic=1.0,  # Enable mosaic augmentation
-        mixup=1.0,  # MixUp augmentation
-        device=[2, 3],  # Use multiple GPUs
-        patience=10,  # Early stopping patience
-        workers=16,  # Number of workers for data loading
-        name="pretrained_model",  # Name for the training run
-        weight_decay=0.0,
-        dropout=0.0,  # Disabilita il dropout
-        lr0=0.01,  # Imposta un learning rate iniziale elevato
-        lrf=0.01,  # Imposta un learning rate finale basso
-        warmup_epochs=3,  # Numero di epoche di warm-up
-        cos_lr=True,  # Abilita la riduzione cosenoide del learning rate
-    )
+    root = tk.Tk()
+    app = LabelCreator(root, img_path)
+    root.mainloop()
