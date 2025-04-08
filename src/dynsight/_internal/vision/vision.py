@@ -75,9 +75,9 @@ def train_model(img_path: pathlib.Path) -> None:
     img_path_2 = Path("output/boxes_content.jpg")
     if img_path.is_file():
         destination_train = guess_dataset_img_path_train / img_path_2.name
-        destination_train.write_bytes(img_path.read_bytes())
+        destination_train.write_bytes(img_path_2.read_bytes())
         destination_val = guess_dataset_img_path_val / img_path_2.name
-        destination_val.write_bytes(img_path.read_bytes())
+        destination_val.write_bytes(img_path_2.read_bytes())
 
     # Splitting labels into train and val
     res_items = list(res.items())
