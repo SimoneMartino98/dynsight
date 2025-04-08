@@ -175,40 +175,49 @@ class LabelCreator:
             print("No cropped images found.")
             return
 
+        # Sort images by size (largest first) to maximize placement
+        cropped_images.sort(
+            key=lambda img: Image.open(img).size[0] * Image.open(img).size[1],
+            reverse=True,
+        )
+
         for cropped_image_path in cropped_images:
             cropped_image = Image.open(cropped_image_path)
             cropped_image.thumbnail(
-                (200, 200)
+            (200, 200)
             )  # Resize to fit within the collage
 
-            max_attempts = 100
-            for _ in range(max_attempts):
-                x = random.randint(0, collage_size[0] - cropped_image.width)
-                y = random.randint(0, collage_size[1] - cropped_image.height)
+            placed = False
+            for y in range(0, collage_size[1] - cropped_image.height + 1, 10):
+            for x in range(0, collage_size[0] - cropped_image.width + 1, 10):
                 new_box = (
-                    x,
-                    y,
-                    x + cropped_image.width,
-                    y + cropped_image.height,
+                x,
+                y,
+                x + cropped_image.width,
+                y + cropped_image.height,
                 )
 
                 # Check for overlap
                 if all(
-                    not (
-                        new_box[0] < pos[2]
-                        and new_box[2] > pos[0]
-                        and new_box[1] < pos[3]
-                        and new_box[3] > pos[1]
-                    )
-                    for pos in used_positions
-                ):
-                    used_positions.append(new_box)
-                    collage.paste(cropped_image, (x, y))
-                    break
-            else:
-                print(
-                    f"Could not place image {cropped_image_path} without overlap."
+                not (
+                    new_box[0] < pos[2]
+                    and new_box[2] > pos[0]
+                    and new_box[1] < pos[3]
+                    and new_box[3] > pos[1]
                 )
+                for pos in used_positions
+                ):
+                used_positions.append(new_box)
+                collage.paste(cropped_image, (x, y))
+                placed = True
+                break
+            if placed:
+                break
+
+            if not placed:
+            print(
+                f"Could not place image {cropped_image_path} without overlap."
+            )
 
         collage.save("collage.png")
         print("Collage saved as collage.png")
