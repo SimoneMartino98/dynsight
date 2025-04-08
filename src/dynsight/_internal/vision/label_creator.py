@@ -1,5 +1,6 @@
 import pathlib
 import tkinter as tk
+from pathlib import Path
 
 from PIL import Image
 
@@ -154,7 +155,8 @@ class LabelCreator:
         for i, box in enumerate(self.boxes):
             abs_coords = box["abs_coords"]
             cropped_image = pil_image.crop(abs_coords)
-            save_path = self.image_path.parent / f"cropped_{i + 1}.png"
+            save_path = Path(f"cropped_selection/{i + 1}.png")
+            save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
         self.master.quit()
