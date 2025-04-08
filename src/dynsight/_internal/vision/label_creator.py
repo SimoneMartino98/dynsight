@@ -1,9 +1,9 @@
 import pathlib
-import random
 import tkinter as tk
-from pathlib import Path
 
-from PIL import Image, ImageEnhance
+from PIL import (
+    Image,  # Assicurati di avere installato Pillow (pip install pillow)
+)
 
 
 class LabelCreator:
@@ -220,39 +220,6 @@ def label_image(
     return boxes, masked_image
 
 
-def augment_image(image: Image) -> list:
-    """Applica diverse tecniche di augmentation per creare copie artificiali."""
-    augmented_images = []
-
-    # Flip orizzontale
-    augmented_images.append(image.transpose(Image.FLIP_LEFT_RIGHT))
-
-    # Rotazione casuale
-    rotated = image.rotate(random.choice([90, 180, 270]))
-    augmented_images.append(rotated)
-
-    # Variazione della luminosità
-    enhancer = ImageEnhance.Brightness(image)
-    brightened = enhancer.enhance(random.uniform(0.7, 1.3))
-    augmented_images.append(brightened)
-
-    # Variazione del contrasto
-    enhancer = ImageEnhance.Contrast(image)
-    contrasted = enhancer.enhance(random.uniform(0.7, 1.3))
-    augmented_images.append(contrasted)
-
-    # Zoom casuale (crop e resize)
-    width, height = image.size
-    left = random.randint(0, int(width * 0.1))
-    top = random.randint(0, int(height * 0.1))
-    right = width - random.randint(0, int(width * 0.1))
-    bottom = height - random.randint(0, int(height * 0.1))
-    cropped = image.crop((left, top, right, bottom)).resize((width, height))
-    augmented_images.append(cropped)
-
-    return augmented_images
-
-
 def create_dataset(
     train_img_path: pathlib.Path, val_img_path: pathlib.Path
 ) -> None:
@@ -268,35 +235,13 @@ def create_dataset(
     img_val_folder = dataset_base / "images" / "val"
 
     # Definisce i percorsi per le immagini mascherate (TRAIN e VALIDATION)
-    train_target = img_train_folder / (train_img_path.stem + ".jpg")
-    val_target = img_val_folder / (val_img_path.stem + ".jpg")
+    train_target = img_train_folder / (train_img_path.stem + "_masked.jpg")
+    val_target = img_val_folder / (val_img_path.stem + "_masked.jpg")
 
     print("Etichettare l'immagine di TRAIN:")
     train_boxes, train_masked = label_image(train_img_path, train_target)
     print("Etichettare l'immagine di VALIDATION:")
     val_boxes, val_masked = label_image(val_img_path, val_target)
-
-    # Augmentazione delle immagini
-    train_image = Image.open(train_img_path)
-    val_image = Image.open(val_img_path)
-    augmented_train_images = augment_image(train_image)
-    augmented_val_images = augment_image(val_image)
-
-    # Salvataggio delle immagini aumentate
-    augmented_train_paths = []
-    augmented_val_paths = []
-
-    for i, augmented in enumerate(augmented_train_images):
-        augmented_train_paths.append(
-            img_train_folder / f"{train_img_path.stem}_{i}.jpg"
-        )
-        augmented.save(augmented_train_paths[-1])
-
-    for i, augmented in enumerate(augmented_val_images):
-        augmented_val_paths.append(
-            img_val_folder / f"{val_img_path.stem}_{i}.jpg"
-        )
-        augmented.save(augmented_val_paths[-1])
 
     # Cartelle per le etichette
     lab_train = dataset_base / "labels" / "train"
@@ -304,28 +249,29 @@ def create_dataset(
     for path in [img_train_folder, img_val_folder, lab_train, lab_val]:
         path.mkdir(parents=True, exist_ok=True)
 
+    # Non c'è necessità di copiare le immagini:
+    # train_masked e val_masked sono già salvate nelle cartelle giuste.
+
     # Scrittura dei file di etichette per TRAIN
-    for path in augmented_train_paths:
-        output_file_train = lab_train / (path.stem + ".txt")
-        with output_file_train.open("w") as f:
-            for _, box in train_boxes.items():
-                f.write(
-                    f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
-                    f"{box['width']:.6f} {box['height']:.6f}\n"
-                )
+    output_file_train = lab_train / "0.txt"
+    with output_file_train.open("w") as f:
+        for _, box in train_boxes.items():
+            f.write(
+                f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
+                f"{box['width']:.6f} {box['height']:.6f}\n"
+            )
 
     # Scrittura dei file di etichette per VALIDATION
-    for path in augmented_val_paths:
-        output_file_val = lab_val / (path.stem + ".txt")
-        with output_file_val.open("w") as f:
-            for _, box in val_boxes.items():
-                f.write(
-                    f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
-                    f"{box['width']:.6f} {box['height']:.6f}\n"
-                )
+    output_file_val = lab_val / "0.txt"
+    with output_file_val.open("w") as f:
+        for _, box in val_boxes.items():
+            f.write(
+                f"0 {box['center_x']:.6f} {box['center_y']:.6f} "
+                f"{box['width']:.6f} {box['height']:.6f}\n"
+            )
 
     # Creazione del file YAML per la configurazione del training YOLO
-    yaml_file = Path("dataset_guess.yaml")
+    yaml_file = dataset_base / "dataset_guess.yaml"
     with yaml_file.open("w") as f:
         f.write(f"train: {img_train_folder!s}\n")
         f.write(f"val: {img_val_folder!s}\n")
