@@ -51,7 +51,9 @@ def extract_frames(
 
 
 def train_model(
-    train_img_path: pathlib.Path, val_img_path: pathlib.Path
+    train_img_path: pathlib.Path,
+    val_img_path: pathlib.Path,
+    yaml_file: pathlib.Path,
 ) -> None:
     """Train a model using the provided image path."""
     # Avvia il processo di etichettatura e creazione del dataset.
@@ -108,25 +110,25 @@ def train_model(
     #         f"names: ['object']\n"
     #     )
     # Initial training
-    # model = YOLO("yolo12x.pt")
-    # model.train(
-    #     data=yaml_file,  # Path to the dataset configuration file
-    #     epochs=100,  # Number of training epochs
-    #     imgsz=1080,  # Image size
-    #     batch=2,  # Batch size (adjust based on GPU memory)
-    #     lr0=0.001,  # Initial learning rate
-    #     lrf=0.01,  # Final learning rate (scheduler)
-    #     optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
-    #     augment=True,  # Enable augmentations
-    #     fliplr=0.5,  # Horizontal flip probability
-    #     flipud=0.5,  # Vertical flip probability
-    #     hsv_h=0.015,  # Adjust hue
-    #     hsv_s=0.7,  # Adjust saturation
-    #     hsv_v=0.4,  # Adjust brightness
-    #     mosaic=0.5,  # Enable mosaic augmentation
-    #     mixup=0.0,  # MixUp augmentation
-    #     device=[2, 3],  # Use multiple GPUs
-    #     patience=10,  # Early stopping patience
-    #     workers=16,  # Number of workers for data loading
-    #     name="pretrained_model",  # Name for the training run
-    # )
+    model = YOLO("yolo12x.pt")
+    model.train(
+        data=yaml_file,  # Path to the dataset configuration file
+        epochs=100,  # Number of training epochs
+        imgsz=1080,  # Image size
+        batch=2,  # Batch size (adjust based on GPU memory)
+        lr0=0.001,  # Initial learning rate
+        lrf=0.01,  # Final learning rate (scheduler)
+        optimizer="auto",  # Use Stochastic Gradient Descent (try 'Adam' too)
+        augment=True,  # Enable augmentations
+        fliplr=0.5,  # Horizontal flip probability
+        flipud=0.5,  # Vertical flip probability
+        hsv_h=0.015,  # Adjust hue
+        hsv_s=0.7,  # Adjust saturation
+        hsv_v=0.4,  # Adjust brightness
+        mosaic=0.5,  # Enable mosaic augmentation
+        mixup=0.0,  # MixUp augmentation
+        device=[2, 3],  # Use multiple GPUs
+        patience=10,  # Early stopping patience
+        workers=16,  # Number of workers for data loading
+        name="pretrained_model",  # Name for the training run
+    )
