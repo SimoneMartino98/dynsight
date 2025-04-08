@@ -1,6 +1,8 @@
 import pathlib
 import tkinter as tk
 
+from PIL import Image
+
 
 class LabelCreator:
     def __init__(
@@ -125,7 +127,7 @@ class LabelCreator:
         )
 
     def on_click_release(self, event: tk.Event) -> None:
-        """Finalizza la box al rilascio del pulsante del mouse."""
+        """Finalizza la box al rilascio del pulsante del mouse e salva la porzione di immagine."""
         end_x = event.x
         end_y = event.y
         x1, y1 = self.start_x, self.start_y
@@ -145,6 +147,14 @@ class LabelCreator:
         }
         self.boxes.append(box_info)
         self.current_box = None
+
+        # Salva la porzione di immagine
+
+        pil_image = Image.open(self.image_path)
+        cropped_image = pil_image.crop(abs_coords)
+        save_path = self.image_path.parent / f"cropped_{len(self.boxes)}.png"
+        cropped_image.save(save_path)
+        print(f"Saved cropped image to {save_path}")
 
     def submit(self) -> None:
         self.master.quit()
