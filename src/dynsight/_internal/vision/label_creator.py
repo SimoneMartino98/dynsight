@@ -148,13 +148,14 @@ class LabelCreator:
         self.boxes.append(box_info)
         self.current_box = None
 
-        # Salva la porzione di immagine
-
+        # Salva tutte le porzioni di immagine al submit
         pil_image = Image.open(self.image_path)
-        cropped_image = pil_image.crop(abs_coords)
-        save_path = self.image_path.parent / f"cropped_{len(self.boxes)}.png"
-        cropped_image.save(save_path)
-        print(f"Saved cropped image to {save_path}")
+        for i, box in enumerate(self.boxes):
+            abs_coords = box["abs_coords"]
+            cropped_image = pil_image.crop(abs_coords)
+            save_path = self.image_path.parent / f"cropped_{i + 1}.png"
+            cropped_image.save(save_path)
+            print(f"Saved cropped image to {save_path}")
 
     def submit(self) -> None:
         self.master.quit()
