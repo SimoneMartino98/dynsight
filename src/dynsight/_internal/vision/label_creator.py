@@ -14,17 +14,12 @@ class LabelCreator:
     ) -> None:
         self.master = master
         self.master.title("Dynsight: Label Creator")
-        self.image_path = image_path  # percorso originale
-        self.masked_image_path = (
-            None  # verrà impostato al salvataggio dell'immagine mascherata
-        )
+        self.image_path = image_path
+        self.masked_image_path = None
 
-        # Numero di collage da generare per il dataset
-        self.num_collages = (
-            1000  # puoi modificare questo valore per generare più collage
-        )
+        self.num_collages = 1000
 
-        # Caricamento immagine
+        # Sample image loading
         try:
             self.image = tk.PhotoImage(file=image_path)
         except Exception as e:
@@ -33,12 +28,12 @@ class LabelCreator:
             self.master.quit()
             return
 
-        # Configurazione della griglia principale
+        # Setup the main grid
         self.master.rowconfigure(0, weight=1)
-        self.master.columnconfigure(0, weight=1)  # Colonna per l'immagine
-        self.master.columnconfigure(1, weight=1)  # Colonna per la sidebar
+        self.master.columnconfigure(0, weight=1)  # Image
+        self.master.columnconfigure(1, weight=1)  # Sidebar
 
-        # Canvas per l'immagine
+        # Image canvas
         self.canvas = tk.Canvas(
             self.master,
             width=self.image.width(),
@@ -47,7 +42,6 @@ class LabelCreator:
         )
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image)
-        # Linee guida per il cursore
         self.h_line = self.canvas.create_line(
             0, 0, self.image.width(), 0, fill="blue", dash=(2, 2), width=3
         )
@@ -55,7 +49,7 @@ class LabelCreator:
             0, 0, 0, self.image.height(), fill="blue", dash=(2, 2), width=3
         )
 
-        # Sidebar per i pulsanti
+        # Sidebar
         self.sidebar = tk.Frame(
             self.master,
             width=150,
@@ -65,7 +59,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(False)
 
-        # Pulsante Submit: salva i crops, genera il dataset (collage+label) e chiude la GUI
+        # Buttons
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -73,7 +67,6 @@ class LabelCreator:
         )
         self.submit_button.pack(pady=10, fill="x")
 
-        # Pulsante Undo per eliminare l'ultima box etichettata
         self.undo_button = tk.Button(
             self.sidebar,
             text="Undo",
@@ -81,7 +74,6 @@ class LabelCreator:
         )
         self.undo_button.pack(pady=10, fill="x")
 
-        # Pulsante Close per chiudere senza salvare
         self.close_button = tk.Button(
             self.sidebar,
             text="Close",
@@ -89,26 +81,26 @@ class LabelCreator:
         )
         self.close_button.pack(pady=10, fill="x")
 
-        # Variabili per la gestione dell'etichettatura
+        # Labelling variables
         self.start_x = None
         self.start_y = None
         self.current_box = None
-        self.boxes = []  # ogni box è un dizionario contenente coordinate relative e assolute
+        self.boxes = []
 
-        # Binding del mouse
+        # Mouse binding
         self.canvas.bind("<Button-1>", self.on_click_press)
         self.canvas.bind("<ButtonRelease-1>", self.on_click_release)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<Motion>", self.follow_mouse)
 
     def follow_mouse(self, event: tk.Event) -> None:
-        """Aggiorna le linee guida per seguire il cursore."""
+        """Update guide lines position with mouse movements."""
         x, y = event.x, event.y
         self.canvas.coords(self.h_line, 0, y, self.image.width(), y)
         self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_press(self, event: tk.Event) -> None:
-        """Inizia a disegnare una box al click del mouse."""
+        """Starts drowing a box on mouse press."""
         self.start_x = event.x
         self.start_y = event.y
         self.current_box = self.canvas.create_rectangle(
@@ -121,7 +113,7 @@ class LabelCreator:
         )
 
     def on_mouse_drag(self, event: tk.Event) -> None:
-        """Aggiorna la dimensione della box mentre si trascina il mouse."""
+        """Update the box coordinates while dragging the mouse."""
         cur_x, cur_y = event.x, event.y
         self.canvas.coords(
             self.current_box, self.start_x, self.start_y, cur_x, cur_y
@@ -134,7 +126,7 @@ class LabelCreator:
         )
 
     def on_click_release(self, event: tk.Event) -> None:
-        """Finalizza la box al rilascio del pulsante del mouse e salva la porzione di immagine."""
+        """Finalize the box on mouse release."""
         end_x = event.x
         end_y = event.y
         x1, y1 = self.start_x, self.start_y
@@ -156,46 +148,36 @@ class LabelCreator:
         self.current_box = None
 
     def submit(self) -> None:
-        """Salva i crops, genera il dataset (collage+label) e chiude la GUI."""
+        """Save the cropped images and generate the guess dataset."""
         pil_image = Image.open(self.image_path)
-        # Salva ogni cropped in un file separato (come in precedenza)
+        # Cropping and saving images
         for i, box in enumerate(self.boxes):
             abs_coords = box["abs_coords"]
             cropped_image = pil_image.crop(abs_coords)
             save_path = Path(f"cropped_selection/{i + 1}.png")
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
-            print(f"Saved cropped image to {save_path}")
-        # Genera il dataset (collage+label)
+        # Generate the dataset
         self.generate_dataset()
         self.master.quit()
 
     def undo(self) -> None:
-        """Annulla l'ultima box disegnata."""
+        """Remove the last drawn box."""
         if self.boxes:
             last_box = self.boxes.pop()
             self.canvas.delete(last_box["id"])
 
     def close(self) -> None:
-        """Chiude la GUI senza salvare."""
+        """Close without saving."""
         self.master.quit()
 
     def generate_collage(self) -> (Image.Image, list):
-        """Genera un singolo collage con dimensioni uguali a quelle dell'immagine originale.
-        Incolla un numero maggiore (3 volte) di crops (anche ripetuti) senza sovrapposizioni.
-        Restituisce una tupla contenente:
-          - l'oggetto collage (PIL.Image)
-          - una lista di stringhe label nel formato "0 center_x center_y width height"
-        dove i valori sono normalizzati rispetto al collage.
-        """
+        """Geneate a random collage of cropped images."""
         original = Image.open(self.image_path)
-        collage = Image.new(
-            "RGBA", original.size, (255, 255, 255, 255)
-        )  # sfondo bianco
-        placed_rects = []  # rettangoli occupati
-        label_lines = []  # stringhe delle label
+        collage = Image.new("RGBA", original.size, (255, 255, 255, 255))
+        placed_rects = []
+        label_lines = []
 
-        # Crea la lista dei crops a partire dalle box selezionate
         cropped_images = []
         for box in self.boxes:
             abs_coords = box["abs_coords"]
@@ -203,10 +185,8 @@ class LabelCreator:
             cropped_images.append(cropped)
 
         if not cropped_images:
-            print("Nessuna immagine cropped disponibile per il collage.")
             return collage, label_lines
 
-        # Numero totale di immagini da incollare (ad es. 3 volte il numero dei crops)
         total_placements = len(cropped_images) * 30
         placed_count = 0
 
@@ -216,13 +196,13 @@ class LabelCreator:
             max_x = collage.width - w
             max_y = collage.height - h
             placed = False
-            for attempt in range(1000):  # evita loop infiniti
+            for attempt in range(1000):  # avoid infinite loops
                 x = random.randint(0, max_x)
                 y = random.randint(0, max_y)
                 new_rect = (x, y, x + w, y + h)
                 overlap = False
                 for rect in placed_rects:
-                    # Verifica se c'è intersezione
+                    # verify rectangle overlaps
                     if not (
                         new_rect[2] <= rect[0]
                         or new_rect[0] >= rect[2]
@@ -234,41 +214,25 @@ class LabelCreator:
                 if not overlap:
                     collage.paste(cropped, (x, y))
                     placed_rects.append(new_rect)
-                    # Calcola le coordinate normalizzate
+                    # Normalization
                     center_x = (x + w / 2) / collage.width
                     center_y = (y + h / 2) / collage.height
                     width_norm = w / collage.width
                     height_norm = h / collage.height
-                    # Formatta la stringa della label
+                    # Formatting
                     label_line = f"0 {center_x:.6f} {center_y:.6f} {width_norm:.6f} {height_norm:.6f}"
                     label_lines.append(label_line)
                     placed = True
                     placed_count += 1
                     break
             if not placed:
-                print(
-                    "Non sono riuscito a posizionare una delle immagini cropped senza sovrapposizioni dopo molti tentativi."
-                )
                 break
 
         return collage, label_lines
 
     def generate_dataset(self) -> None:
-        """Genera un dataset di collage e label per YOLO.
-        La struttura del dataset è:
-          Dataset/
-              images/
-                  train/
-                  val/
-              labels/
-                  train/
-                  val/
-        Viene generato un numero di collage pari a self.num_collages.
-        La suddivisione (approssimativa) è: 70% (più eventuale residuo) per il training e 20% per la validation.
-        I file label hanno lo stesso nome della rispettiva immagine.
-        """
-        # Crea la struttura delle cartelle
-        base_dir = Path("Dataset")
+        """Generate the guess dataset with train and validation splits."""
+        base_dir = Path("guess_dataset")
         images_train_dir = base_dir / "images" / "train"
         images_val_dir = base_dir / "images" / "val"
         labels_train_dir = base_dir / "labels" / "train"
@@ -281,18 +245,14 @@ class LabelCreator:
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
-        # Calcola il numero di collage per train e val
         num_train = int(self.num_collages * 0.7)
         num_val = int(self.num_collages * 0.2)
         remaining = self.num_collages - (num_train + num_val)
-        # Assegno il resto a training (puoi modificare questa logica se necessario)
         num_train += remaining
 
-        # Crea una lista con l'assegnazione (ad esempio, "train" ripetuto num_train volte e "val" per num_val)
         assignments = ["train"] * num_train + ["val"] * num_val
         random.shuffle(assignments)
 
-        # Genera i collage e salva immagini e label nella cartella corretta
         for i in range(1, self.num_collages + 1):
             collage, label_lines = self.generate_collage()
             subset = assignments[i - 1]
@@ -304,8 +264,6 @@ class LabelCreator:
                 label_save_path = labels_val_dir / f"{i}.txt"
 
             collage.save(image_save_path)
-            print(f"Saved collage image to {image_save_path}")
             with label_save_path.open("w") as f:
                 for line in label_lines:
                     f.write(line + "\n")
-            print(f"Saved labels to {label_save_path}")
