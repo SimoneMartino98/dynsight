@@ -60,7 +60,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(False)
 
-        # Pulsante Submit: salva le porzioni di immagine, genera il collage e chiude la GUI
+        # Pulsante Submit: salva i crops, genera il collage e chiude la GUI
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -153,6 +153,7 @@ class LabelCreator:
     def submit(self) -> None:
         """Salva i crops, genera il collage e chiude la GUI."""
         pil_image = Image.open(self.image_path)
+        # Salva ogni cropped in un file separato
         for i, box in enumerate(self.boxes):
             abs_coords = box["abs_coords"]
             cropped_image = pil_image.crop(abs_coords)
@@ -160,7 +161,7 @@ class LabelCreator:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
-        # Generazione del collage
+        # Genera il collage dopo aver salvato i crops
         self.create_collage()
         self.master.quit()
 
@@ -176,7 +177,8 @@ class LabelCreator:
 
     def create_collage(self) -> None:
         """Crea un collage con dimensioni uguali all'immagine originale,
-        incollando casualmente i crops ottenuti senza sovrapposizioni.
+        incollando casualmente un numero maggiore di crops ottenuti (anche ripetuti)
+        senza che si sovrappongano.
         """
         original = Image.open(self.image_path)
         collage = Image.new(
@@ -191,19 +193,28 @@ class LabelCreator:
             cropped = original.crop(abs_coords)
             cropped_images.append(cropped)
 
-        # Posiziona ogni cropped casualmente senza sovrapposizioni
-        for cropped in cropped_images:
+        if not cropped_images:
+            print("Nessuna immagine cropped disponibile per il collage.")
+            return
+
+        # Definisce il numero totale di immagini da incollare: ad esempio, 3 volte il numero di crops
+        total_placements = len(cropped_images) * 3
+        placed_count = 0
+
+        while placed_count < total_placements:
+            # Scegli casualmente una cropped image
+            cropped = random.choice(cropped_images)
             w, h = cropped.size
-            placed = False
             max_x = collage.width - w
             max_y = collage.height - h
+            placed = False
             for attempt in range(1000):  # evita loop infiniti
                 x = random.randint(0, max_x)
                 y = random.randint(0, max_y)
                 new_rect = (x, y, x + w, y + h)
                 overlap = False
                 for rect in placed_rects:
-                    # Verifica intersezione tra rettangoli
+                    # Controlla se c'è intersezione tra rettangoli
                     if not (
                         new_rect[2] <= rect[0]
                         or new_rect[0] >= rect[2]
@@ -216,11 +227,14 @@ class LabelCreator:
                     collage.paste(cropped, (x, y))
                     placed_rects.append(new_rect)
                     placed = True
+                    placed_count += 1
                     break
             if not placed:
                 print(
                     "Non sono riuscito a posizionare una delle immagini cropped senza sovrapposizioni dopo molti tentativi."
                 )
+                break
+
         collage_save_path = Path("collage.png")
         collage.save(collage_save_path)
         print(f"Saved collage image to {collage_save_path}")
