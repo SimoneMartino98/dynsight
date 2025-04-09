@@ -198,7 +198,7 @@ class LabelCreator:
             return
 
         # Definisce il numero totale di immagini da incollare: ad esempio, 3 volte il numero di crops
-        total_placements = len(cropped_images) * 3
+        total_placements = len(cropped_images) * 30
         placed_count = 0
 
         while placed_count < total_placements:
