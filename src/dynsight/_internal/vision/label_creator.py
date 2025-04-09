@@ -60,7 +60,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(False)
 
-        # Pulsante Submit: salva i crops, genera il collage e chiude la GUI
+        # Pulsante Submit: salva i crops, genera il collage e crea il file di labels, quindi chiude la GUI
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -88,7 +88,7 @@ class LabelCreator:
         self.start_x = None
         self.start_y = None
         self.current_box = None
-        self.boxes = []  # ogni box è un dizionario con coordinate relative e assolute
+        self.boxes = []  # ogni box è un dizionario contenente coordinate relative e assolute
 
         # Binding del mouse
         self.canvas.bind("<Button-1>", self.on_click_press)
@@ -151,7 +151,7 @@ class LabelCreator:
         self.current_box = None
 
     def submit(self) -> None:
-        """Salva i crops, genera il collage e chiude la GUI."""
+        """Salva i crops, genera il collage, crea il file di labels e chiude la GUI."""
         pil_image = Image.open(self.image_path)
         # Salva ogni cropped in un file separato
         for i, box in enumerate(self.boxes):
@@ -161,7 +161,7 @@ class LabelCreator:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
-        # Genera il collage dopo aver salvato i crops
+        # Genera il collage e crea il file di labels
         self.create_collage()
         self.master.quit()
 
@@ -178,13 +178,18 @@ class LabelCreator:
     def create_collage(self) -> None:
         """Crea un collage con dimensioni uguali all'immagine originale,
         incollando casualmente un numero maggiore di crops ottenuti (anche ripetuti)
-        senza che si sovrappongano.
+        senza che si sovrappongano, e crea un file di testo contenente le label
+        per l'addestramento nel formato:
+          [0 center_x center_y width height]
+        dove i valori sono normalizzati tra 0 e 1 e width/height corrispondono
+        alle dimensioni della cropped image.
         """
         original = Image.open(self.image_path)
         collage = Image.new(
             "RGBA", original.size, (255, 255, 255, 255)
         )  # sfondo bianco
         placed_rects = []  # lista di rettangoli già occupati nella tela
+        label_lines = []  # lista delle stringhe di label
 
         # Crea la lista delle immagini cropped a partire dalle box selezionate
         cropped_images = []
@@ -202,7 +207,7 @@ class LabelCreator:
         placed_count = 0
 
         while placed_count < total_placements:
-            # Scegli casualmente una cropped image
+            # Scegli casualmente una cropped image (anche ripetuta)
             cropped = random.choice(cropped_images)
             w, h = cropped.size
             max_x = collage.width - w
@@ -214,7 +219,7 @@ class LabelCreator:
                 new_rect = (x, y, x + w, y + h)
                 overlap = False
                 for rect in placed_rects:
-                    # Controlla se c'è intersezione tra rettangoli
+                    # Verifica intersezione tra rettangoli
                     if not (
                         new_rect[2] <= rect[0]
                         or new_rect[0] >= rect[2]
@@ -226,6 +231,14 @@ class LabelCreator:
                 if not overlap:
                     collage.paste(cropped, (x, y))
                     placed_rects.append(new_rect)
+                    # Calcola le coordinate normalizzate per la label
+                    center_x = (x + w / 2) / collage.width
+                    center_y = (y + h / 2) / collage.height
+                    width_norm = w / collage.width
+                    height_norm = h / collage.height
+                    # Format della stringa: "0 center_x center_y width height"
+                    label_line = f"0 {center_x:.6f} {center_y:.6f} {width_norm:.6f} {height_norm:.6f}"
+                    label_lines.append(label_line)
                     placed = True
                     placed_count += 1
                     break
@@ -238,3 +251,10 @@ class LabelCreator:
         collage_save_path = Path("collage.png")
         collage.save(collage_save_path)
         print(f"Saved collage image to {collage_save_path}")
+
+        # Salva il file di testo con le label
+        labels_save_path = Path("collage_labels.txt")
+        with labels_save_path.open("w") as f:
+            for line in label_lines:
+                f.write(line + "\n")
+        print(f"Saved labels to {labels_save_path}")
