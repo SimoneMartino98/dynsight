@@ -21,7 +21,7 @@ class LabelCreator:
 
         # Numero di collage da generare per il dataset
         self.num_collages = (
-            10  # puoi modificare questo valore per generare più collage
+            1000  # puoi modificare questo valore per generare più collage
         )
 
         # Caricamento immagine
@@ -207,7 +207,7 @@ class LabelCreator:
             return collage, label_lines
 
         # Numero totale di immagini da incollare (ad es. 3 volte il numero dei crops)
-        total_placements = len(cropped_images) * 3
+        total_placements = len(cropped_images) * 30
         placed_count = 0
 
         while placed_count < total_placements:
