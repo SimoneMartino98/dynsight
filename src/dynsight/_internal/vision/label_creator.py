@@ -1,4 +1,5 @@
 import pathlib
+import random
 import tkinter as tk
 from pathlib import Path
 
@@ -59,7 +60,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(False)
 
-        # Pulsante Submit: salva l'immagine mascherata e chiude la GUI
+        # Pulsante Submit: salva le porzioni di immagine, genera il collage e chiude la GUI
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -150,7 +151,7 @@ class LabelCreator:
         self.current_box = None
 
     def submit(self) -> None:
-        # Salva tutte le porzioni di immagine al submit
+        """Salva i crops, genera il collage e chiude la GUI."""
         pil_image = Image.open(self.image_path)
         for i, box in enumerate(self.boxes):
             abs_coords = box["abs_coords"]
@@ -159,6 +160,8 @@ class LabelCreator:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
+        # Generazione del collage
+        self.create_collage()
         self.master.quit()
 
     def undo(self) -> None:
@@ -170,3 +173,54 @@ class LabelCreator:
     def close(self) -> None:
         """Chiude la GUI senza salvare."""
         self.master.quit()
+
+    def create_collage(self) -> None:
+        """Crea un collage con dimensioni uguali all'immagine originale,
+        incollando casualmente i crops ottenuti senza sovrapposizioni.
+        """
+        original = Image.open(self.image_path)
+        collage = Image.new(
+            "RGBA", original.size, (255, 255, 255, 255)
+        )  # sfondo bianco
+        placed_rects = []  # lista di rettangoli già occupati nella tela
+
+        # Crea la lista delle immagini cropped a partire dalle box selezionate
+        cropped_images = []
+        for box in self.boxes:
+            abs_coords = box["abs_coords"]
+            cropped = original.crop(abs_coords)
+            cropped_images.append(cropped)
+
+        # Posiziona ogni cropped casualmente senza sovrapposizioni
+        for cropped in cropped_images:
+            w, h = cropped.size
+            placed = False
+            max_x = collage.width - w
+            max_y = collage.height - h
+            for attempt in range(1000):  # evita loop infiniti
+                x = random.randint(0, max_x)
+                y = random.randint(0, max_y)
+                new_rect = (x, y, x + w, y + h)
+                overlap = False
+                for rect in placed_rects:
+                    # Verifica intersezione tra rettangoli
+                    if not (
+                        new_rect[2] <= rect[0]
+                        or new_rect[0] >= rect[2]
+                        or new_rect[3] <= rect[1]
+                        or new_rect[1] >= rect[3]
+                    ):
+                        overlap = True
+                        break
+                if not overlap:
+                    collage.paste(cropped, (x, y))
+                    placed_rects.append(new_rect)
+                    placed = True
+                    break
+            if not placed:
+                print(
+                    "Non sono riuscito a posizionare una delle immagini cropped senza sovrapposizioni dopo molti tentativi."
+                )
+        collage_save_path = Path("collage.png")
+        collage.save(collage_save_path)
+        print(f"Saved collage image to {collage_save_path}")
