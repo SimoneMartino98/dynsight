@@ -19,6 +19,11 @@ class LabelCreator:
             None  # verrà impostato al salvataggio dell'immagine mascherata
         )
 
+        # Numero di collage da generare per il dataset
+        self.num_collages = (
+            10  # puoi modificare questo valore per generare più collage
+        )
+
         # Caricamento immagine
         try:
             self.image = tk.PhotoImage(file=image_path)
@@ -60,7 +65,7 @@ class LabelCreator:
         self.sidebar.grid(row=0, column=1, sticky="ns")
         self.sidebar.grid_propagate(False)
 
-        # Pulsante Submit: salva i crops, genera il collage e crea il file di labels, quindi chiude la GUI
+        # Pulsante Submit: salva i crops, genera il dataset (collage+label) e chiude la GUI
         self.submit_button = tk.Button(
             self.sidebar,
             text="Submit",
@@ -151,9 +156,9 @@ class LabelCreator:
         self.current_box = None
 
     def submit(self) -> None:
-        """Salva i crops, genera il collage, crea il file di labels e chiude la GUI."""
+        """Salva i crops, genera il dataset (collage+label) e chiude la GUI."""
         pil_image = Image.open(self.image_path)
-        # Salva ogni cropped in un file separato
+        # Salva ogni cropped in un file separato (come in precedenza)
         for i, box in enumerate(self.boxes):
             abs_coords = box["abs_coords"]
             cropped_image = pil_image.crop(abs_coords)
@@ -161,8 +166,8 @@ class LabelCreator:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             cropped_image.save(save_path)
             print(f"Saved cropped image to {save_path}")
-        # Genera il collage e crea il file di labels
-        self.create_collage()
+        # Genera il dataset (collage+label)
+        self.generate_dataset()
         self.master.quit()
 
     def undo(self) -> None:
@@ -175,23 +180,22 @@ class LabelCreator:
         """Chiude la GUI senza salvare."""
         self.master.quit()
 
-    def create_collage(self) -> None:
-        """Crea un collage con dimensioni uguali all'immagine originale,
-        incollando casualmente un numero maggiore di crops ottenuti (anche ripetuti)
-        senza che si sovrappongano, e crea un file di testo contenente le label
-        per l'addestramento nel formato:
-          [0 center_x center_y width height]
-        dove i valori sono normalizzati tra 0 e 1 e width/height corrispondono
-        alle dimensioni della cropped image.
+    def generate_collage(self) -> (Image.Image, list):
+        """Genera un singolo collage con dimensioni uguali a quelle dell'immagine originale.
+        Incolla un numero maggiore (3 volte) di crops (anche ripetuti) senza sovrapposizioni.
+        Restituisce una tupla contenente:
+          - l'oggetto collage (PIL.Image)
+          - una lista di stringhe label nel formato "0 center_x center_y width height"
+        dove i valori sono normalizzati rispetto al collage.
         """
         original = Image.open(self.image_path)
         collage = Image.new(
             "RGBA", original.size, (255, 255, 255, 255)
         )  # sfondo bianco
-        placed_rects = []  # lista di rettangoli già occupati nella tela
-        label_lines = []  # lista delle stringhe di label
+        placed_rects = []  # rettangoli occupati
+        label_lines = []  # stringhe delle label
 
-        # Crea la lista delle immagini cropped a partire dalle box selezionate
+        # Crea la lista dei crops a partire dalle box selezionate
         cropped_images = []
         for box in self.boxes:
             abs_coords = box["abs_coords"]
@@ -200,14 +204,13 @@ class LabelCreator:
 
         if not cropped_images:
             print("Nessuna immagine cropped disponibile per il collage.")
-            return
+            return collage, label_lines
 
-        # Definisce il numero totale di immagini da incollare: ad esempio, 3 volte il numero di crops
-        total_placements = len(cropped_images) * 30
+        # Numero totale di immagini da incollare (ad es. 3 volte il numero dei crops)
+        total_placements = len(cropped_images) * 3
         placed_count = 0
 
         while placed_count < total_placements:
-            # Scegli casualmente una cropped image (anche ripetuta)
             cropped = random.choice(cropped_images)
             w, h = cropped.size
             max_x = collage.width - w
@@ -219,7 +222,7 @@ class LabelCreator:
                 new_rect = (x, y, x + w, y + h)
                 overlap = False
                 for rect in placed_rects:
-                    # Verifica intersezione tra rettangoli
+                    # Verifica se c'è intersezione
                     if not (
                         new_rect[2] <= rect[0]
                         or new_rect[0] >= rect[2]
@@ -231,12 +234,12 @@ class LabelCreator:
                 if not overlap:
                     collage.paste(cropped, (x, y))
                     placed_rects.append(new_rect)
-                    # Calcola le coordinate normalizzate per la label
+                    # Calcola le coordinate normalizzate
                     center_x = (x + w / 2) / collage.width
                     center_y = (y + h / 2) / collage.height
                     width_norm = w / collage.width
                     height_norm = h / collage.height
-                    # Format della stringa: "0 center_x center_y width height"
+                    # Formatta la stringa della label
                     label_line = f"0 {center_x:.6f} {center_y:.6f} {width_norm:.6f} {height_norm:.6f}"
                     label_lines.append(label_line)
                     placed = True
@@ -248,13 +251,61 @@ class LabelCreator:
                 )
                 break
 
-        collage_save_path = Path("collage.png")
-        collage.save(collage_save_path)
-        print(f"Saved collage image to {collage_save_path}")
+        return collage, label_lines
 
-        # Salva il file di testo con le label
-        labels_save_path = Path("collage_labels.txt")
-        with labels_save_path.open("w") as f:
-            for line in label_lines:
-                f.write(line + "\n")
-        print(f"Saved labels to {labels_save_path}")
+    def generate_dataset(self) -> None:
+        """Genera un dataset di collage e label per YOLO.
+        La struttura del dataset è:
+          Dataset/
+              images/
+                  train/
+                  val/
+              labels/
+                  train/
+                  val/
+        Viene generato un numero di collage pari a self.num_collages.
+        La suddivisione (approssimativa) è: 70% (più eventuale residuo) per il training e 20% per la validation.
+        I file label hanno lo stesso nome della rispettiva immagine.
+        """
+        # Crea la struttura delle cartelle
+        base_dir = Path("Dataset")
+        images_train_dir = base_dir / "images" / "train"
+        images_val_dir = base_dir / "images" / "val"
+        labels_train_dir = base_dir / "labels" / "train"
+        labels_val_dir = base_dir / "labels" / "val"
+        for d in [
+            images_train_dir,
+            images_val_dir,
+            labels_train_dir,
+            labels_val_dir,
+        ]:
+            d.mkdir(parents=True, exist_ok=True)
+
+        # Calcola il numero di collage per train e val
+        num_train = int(self.num_collages * 0.7)
+        num_val = int(self.num_collages * 0.2)
+        remaining = self.num_collages - (num_train + num_val)
+        # Assegno il resto a training (puoi modificare questa logica se necessario)
+        num_train += remaining
+
+        # Crea una lista con l'assegnazione (ad esempio, "train" ripetuto num_train volte e "val" per num_val)
+        assignments = ["train"] * num_train + ["val"] * num_val
+        random.shuffle(assignments)
+
+        # Genera i collage e salva immagini e label nella cartella corretta
+        for i in range(1, self.num_collages + 1):
+            collage, label_lines = self.generate_collage()
+            subset = assignments[i - 1]
+            if subset == "train":
+                image_save_path = images_train_dir / f"{i}.png"
+                label_save_path = labels_train_dir / f"{i}.txt"
+            else:
+                image_save_path = images_val_dir / f"{i}.png"
+                label_save_path = labels_val_dir / f"{i}.txt"
+
+            collage.save(image_save_path)
+            print(f"Saved collage image to {image_save_path}")
+            with label_save_path.open("w") as f:
+                for line in label_lines:
+                    f.write(line + "\n")
+            print(f"Saved labels to {label_save_path}")
