@@ -116,7 +116,6 @@ def train_model_from_guess_dataset(
     for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
         with Image.open(f"{frames_folder}/{frame_file}") as img:
             width, height = img.size
-            img.close()
         model.predict(
             source=f"{frames_folder}/{frame_file}",
             imgsz=(height, width),
