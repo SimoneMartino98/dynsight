@@ -134,14 +134,16 @@ def train_model_from_guess_dataset(
     print("ok2")
     prediction_path = "prediction_project"
     prediction_name = "prediction_name"
-    main_folder = pathlib.Path(prediction_path) / prediction_name
+    main_folder = os.path.join(prediction_path, prediction_name)
     for folder_name in os.listdir(prediction_path):
         if (
             folder_name.startswith(prediction_name)
             and folder_name != prediction_name
         ):
-            folder_path = pathlib.Path(prediction_path) / folder_name
-            if folder_path.is_dir():
+            folder_path = os.path.join(prediction_path, folder_name)
+            if os.path.isdir(folder_path):
+                print(f"Merging {folder_path} in {main_folder}...")
                 _merge_folders(folder_path, main_folder)
                 shutil.rmtree(folder_path)
+    print("Merge complete")
     print("ok3")
