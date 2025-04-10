@@ -111,7 +111,7 @@ def train_model_from_guess_dataset(
         workers=16,  # Number of workers for data loading
         name="pretrained_model",  # Name for the training run
     )
-    print("ok")
+    print("okkkk")
     model = YOLO("runs/detect/pretrained_model/weights/best.pt")
     for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
         with Image.open(f"{frames_folder}/{frame_file}") as img:
