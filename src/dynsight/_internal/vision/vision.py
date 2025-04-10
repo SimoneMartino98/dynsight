@@ -9,7 +9,6 @@ import os
 import tkinter as tk
 
 import cv2
-from PIL import Image
 from ultralytics import YOLO
 
 from .vision_gui import CreateGuessDataset
@@ -96,24 +95,3 @@ def train_model_from_guess_dataset(
         name="super_prova",  # Name for the training run
     )
     print("ok")
-    counter = 0
-    for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
-        if counter == 0:
-            with Image.open(f"{frames_folder}/{frame_file}") as img:
-                width, height = img.size
-        model.predict(
-            source=f"{frames_folder}/{frame_file}",
-            imgsz=(height, width),  # type: ignore
-            augment=True,
-            save=True,
-            save_txt=True,
-            save_conf=True,
-            show_labels=False,
-            name="prova_nome",
-            iou=0.35,
-            max_det=200000,
-            project="prova_progetto",
-            line_width=2,
-            agnostic_nms=True,
-        )
-        counter += 1
