@@ -109,44 +109,39 @@ def train_model_from_guess_dataset(
         device=[2, 3],  # Use multiple GPUs
         patience=10,  # Early stopping patience
         workers=16,  # Number of workers for data loading
-        name="guess_model",  # Name for the training run
+        name="pretrained_model",  # Name for the training run
     )
     print("ok")
-    model = YOLO("runs/detect/guess_model/weights/best.pt")
-    counter = 0
+    model = YOLO("runs/detect/pretrained_model/weights/best.pt")
     for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
-        if counter == 0:
-            with Image.open(f"{frames_folder}/{frame_file}") as img:
-                width, height = img.size
+        with Image.open(f"{frames_folder}/{frame_file}") as img:
+            width, height = img.size
         model.predict(
             source=f"{frames_folder}/{frame_file}",
-            imgsz=(height, width),  # type: ignore
+            imgsz=(height, width),
             augment=True,
             save=True,
             save_txt=True,
             save_conf=True,
             show_labels=False,
             name="prediction_name",
-            iou=0.35,
+            iou=0.1,
             max_det=200000,
             project="prediction_project",
             line_width=2,
             agnostic_nms=True,
         )
-        counter += 1
     print("ok2")
     prediction_path = "prediction_project"
     prediction_name = "prediction_name"
-    main_folder = os.path.join(prediction_path, prediction_name)
+    main_folder = pathlib.Path(prediction_path) / prediction_name
     for folder_name in os.listdir(prediction_path):
         if (
             folder_name.startswith(prediction_name)
             and folder_name != prediction_name
         ):
-            folder_path = os.path.join(prediction_path, folder_name)
-            if os.path.isdir(folder_path):
-                print(f"Merging {folder_path} in {main_folder}...")
+            folder_path = pathlib.Path(prediction_path) / folder_name
+            if folder_path.is_dir():
                 _merge_folders(folder_path, main_folder)
                 shutil.rmtree(folder_path)
-    print("Merge complete")
     print("ok3")
