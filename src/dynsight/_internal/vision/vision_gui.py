@@ -6,14 +6,14 @@ from pathlib import Path
 from PIL import Image
 
 
-class LabelCreator:
+class CreateGuessDataset:
     def __init__(
         self,
         master: tk.Tk,
         image_path: pathlib.Path,
     ) -> None:
         self.master = master
-        self.master.title("Dynsight: Label Creator")
+        self.master.title("Dynsight: Create Guess Dataset")
         self.image_path = image_path
         self.masked_image_path = None
 
@@ -57,7 +57,7 @@ class LabelCreator:
             pady=10,
         )
         self.sidebar.grid(row=0, column=1, sticky="ns")
-        self.sidebar.grid_propagate(False)
+        self.sidebar.grid_propagate(flag=False)
 
         # Buttons
         self.submit_button = tk.Button(
@@ -196,7 +196,7 @@ class LabelCreator:
             max_x = collage.width - w
             max_y = collage.height - h
             placed = False
-            for attempt in range(1000):  # avoid infinite loops
+            for _attempt in range(1000):  # avoid infinite loops
                 x = random.randint(0, max_x)
                 y = random.randint(0, max_y)
                 new_rect = (x, y, x + w, y + h)
@@ -220,7 +220,10 @@ class LabelCreator:
                     width_norm = w / collage.width
                     height_norm = h / collage.height
                     # Formatting
-                    label_line = f"0 {center_x:.6f} {center_y:.6f} {width_norm:.6f} {height_norm:.6f}"
+                    label_line = (
+                        f"0 {center_x:.6f} {center_y:.6f} "
+                        f"{width_norm:.6f} {height_norm:.6f}"
+                    )
                     label_lines.append(label_line)
                     placed = True
                     placed_count += 1

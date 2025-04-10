@@ -9,7 +9,7 @@ import tkinter as tk
 
 import cv2
 
-from .label_creator import LabelCreator
+from .vision_gui import CreateGuessDataset
 
 
 def extract_frames(
@@ -52,9 +52,9 @@ def extract_frames(
         cv2.imwrite(str(output_path / f"{index}.png"), frame)
 
 
-def train_model(
+def create_guess_dataset(
     img_path: pathlib.Path,
 ) -> None:
     root = tk.Tk()
-    app = LabelCreator(root, img_path)
+    CreateGuessDataset(root, img_path)
     root.mainloop()
