@@ -9,6 +9,7 @@ import os
 import tkinter as tk
 
 import cv2
+from PIL import Image
 from ultralytics import YOLO
 
 from .vision_gui import CreateGuessDataset
@@ -16,6 +17,21 @@ from .vision_gui import CreateGuessDataset
 
 def _numerical_sort(filename):
     return int(os.path.splitext(filename)[0])
+
+
+def _merge_folders(src_folder, dest_folder):
+    for root, dirs, files in os.walk(src_folder):
+        relative_path = os.path.relpath(root, src_folder)
+        dest_path = os.path.join(dest_folder, relative_path)
+
+        if not os.path.exists(dest_path):
+            os.makedirs(dest_path)
+
+        for file in files:
+            src_file = os.path.join(root, file)
+            dest_file = os.path.join(dest_path, file)
+
+            shutil.move(src_file, dest_file)
 
 
 def extract_frames(
@@ -92,6 +108,29 @@ def train_model_from_guess_dataset(
         device=[2, 3],  # Use multiple GPUs
         patience=10,  # Early stopping patience
         workers=16,  # Number of workers for data loading
-        name="super_prova",  # Name for the training run
+        name="guess_model",  # Name for the training run
     )
     print("ok")
+    model = YOLO("runs/detect/guess_model/weights/best.pt")
+    counter = 0
+    for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
+        if counter == 0:
+            with Image.open(f"{frames_folder}/{frame_file}") as img:
+                width, height = img.size
+        model.predict(
+            source=f"{frames_folder}/{frame_file}",
+            imgsz=(height, width),  # type: ignore
+            augment=True,
+            save=True,
+            save_txt=True,
+            save_conf=True,
+            show_labels=False,
+            name="prediction_name",
+            iou=0.35,
+            max_det=200000,
+            project="prediction_project",
+            line_width=2,
+            agnostic_nms=True,
+        )
+        counter += 1
+    print("ok2")
