@@ -3,6 +3,7 @@ import random
 import tkinter as tk
 from pathlib import Path
 
+import yaml  # Assicurati di aver installato PyYAML
 from PIL import Image
 
 
@@ -100,7 +101,7 @@ class CreateGuessDataset:
         self.canvas.coords(self.v_line, x, 0, x, self.image.height())
 
     def on_click_press(self, event: tk.Event) -> None:
-        """Starts drowing a box on mouse press."""
+        """Starts drawing a box on mouse press."""
         self.start_x = event.x
         self.start_y = event.y
         self.current_box = self.canvas.create_rectangle(
@@ -148,7 +149,7 @@ class CreateGuessDataset:
         self.current_box = None
 
     def submit(self) -> None:
-        """Save the cropped images and generate the guess dataset."""
+        """Save the cropped images, generate the guess dataset e crea il file YAML."""
         pil_image = Image.open(self.image_path)
         # Cropping and saving images
         for i, box in enumerate(self.boxes):
@@ -159,6 +160,19 @@ class CreateGuessDataset:
             cropped_image.save(save_path)
         # Generate the dataset
         self.generate_dataset()
+
+        # Crea il file YAML con il dataset creato
+        # In questo caso, il dataset è stato generato in "guess_dataset"
+        config_data = {
+            "path": "guess_dataset",  # Il dataset creato
+            "train": "images/train",
+            "val": "images/val",
+            "nc": 1,  # Numero di classi
+            "names": ["obj"],  # Nomi delle classi
+        }
+        with open("config.yaml", "w") as config_file:
+            yaml.dump(config_data, config_file, sort_keys=False)
+
         self.master.quit()
 
     def undo(self) -> None:
@@ -172,7 +186,7 @@ class CreateGuessDataset:
         self.master.quit()
 
     def generate_collage(self) -> (Image.Image, list):
-        """Geneate a random collage of cropped images."""
+        """Generate a random collage of cropped images."""
         original = Image.open(self.image_path)
         collage = Image.new("RGBA", original.size, (255, 255, 255, 255))
         placed_rects = []
@@ -196,13 +210,13 @@ class CreateGuessDataset:
             max_x = collage.width - w
             max_y = collage.height - h
             placed = False
-            for _attempt in range(1000):  # avoid infinite loops
+            for _attempt in range(1000):  # evita loop infiniti
                 x = random.randint(0, max_x)
                 y = random.randint(0, max_y)
                 new_rect = (x, y, x + w, y + h)
                 overlap = False
                 for rect in placed_rects:
-                    # verify rectangle overlaps
+                    # Controlla l'overlap dei rettangoli
                     if not (
                         new_rect[2] <= rect[0]
                         or new_rect[0] >= rect[2]
@@ -214,12 +228,12 @@ class CreateGuessDataset:
                 if not overlap:
                     collage.paste(cropped, (x, y))
                     placed_rects.append(new_rect)
-                    # Normalization
+                    # Normalizzazione
                     center_x = (x + w / 2) / collage.width
                     center_y = (y + h / 2) / collage.height
                     width_norm = w / collage.width
                     height_norm = h / collage.height
-                    # Formatting
+                    # Formattazione della label
                     label_line = (
                         f"0 {center_x:.6f} {center_y:.6f} "
                         f"{width_norm:.6f} {height_norm:.6f}"
@@ -261,10 +275,10 @@ class CreateGuessDataset:
             subset = assignments[i - 1]
             if subset == "train":
                 image_save_path = images_train_dir / f"{i}.png"
-                label_save_path = labels_train_dir / f"{i}.txt"
+                label_save_path = base_dir / "labels" / "train" / f"{i}.txt"
             else:
                 image_save_path = images_val_dir / f"{i}.png"
-                label_save_path = labels_val_dir / f"{i}.txt"
+                label_save_path = base_dir / "labels" / "val" / f"{i}.txt"
 
             collage.save(image_save_path)
             with label_save_path.open("w") as f:
