@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     import pathlib
 
 import os
+import shutil
 import tkinter as tk
 
 import cv2
@@ -91,7 +92,7 @@ def train_model_from_guess_dataset(
     model = YOLO(starting_model)
     model.train(
         data=yaml_file,  # Path to the dataset configuration file
-        epochs=2,  # Number of training epochs
+        epochs=100,  # Number of training epochs
         imgsz=1080,  # Image size
         batch=2,  # Batch size (adjust based on GPU memory)
         lr0=0.001,  # Initial learning rate
@@ -134,3 +135,5 @@ def train_model_from_guess_dataset(
         )
         counter += 1
     print("ok2")
+    _merge_folders("prediction_project/prediction_name", frames_folder)
+    print("ok3")
