@@ -5,11 +5,18 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pathlib
 
+import os
 import tkinter as tk
 
 import cv2
+from PIL import Image
+from ultralytics import YOLO
 
 from .vision_gui import CreateGuessDataset
+
+
+def _numerical_sort(filename):
+    return int(os.path.splitext(filename)[0])
 
 
 def extract_frames(
@@ -62,13 +69,13 @@ def create_guess_dataset(
 
 def train_model_from_guess_dataset(
     frames_folder: pathlib.Path,
-    initial_dataset: pathlib.Path,
+    yaml_file: pathlib.Path,
     starting_model: str | pathlib.Path = "yolo12x.pt",
 ) -> None:
     # Defining starting point
     model = YOLO(starting_model)
-    results = model.train(
-        data="fire.yaml",  # Path to the dataset configuration file
+    model.train(
+        data=yaml_file,  # Path to the dataset configuration file
         epochs=1000,  # Number of training epochs
         imgsz=1080,  # Image size
         batch=2,  # Batch size (adjust based on GPU memory)
@@ -87,5 +94,25 @@ def train_model_from_guess_dataset(
         patience=10,  # Early stopping patience
         workers=16,  # Number of workers for data loading
         name="super_prova",  # Name for the training run
-        # resume=True
     )
+    counter = 0
+    for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
+        if counter == 0:
+            with Image.open(f"{frames_folder}/{frame_file}") as img:
+                width, height = img.size
+        model.predict(
+            source=f"{frames_folder}/{frame_file}",
+            imgsz=(height, width),  # type: ignore
+            augment=True,
+            save=True,
+            save_txt=True,
+            save_conf=True,
+            show_labels=False,
+            name="prova_nome",
+            iou=0.35,
+            max_det=200000,
+            project="prova_progetto",
+            line_width=2,
+            agnostic_nms=True,
+        )
+        counter += 1
