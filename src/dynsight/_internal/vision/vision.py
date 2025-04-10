@@ -76,7 +76,7 @@ def train_model_from_guess_dataset(
     model = YOLO(starting_model)
     model.train(
         data=yaml_file,  # Path to the dataset configuration file
-        epochs=1000,  # Number of training epochs
+        epochs=2,  # Number of training epochs
         imgsz=1080,  # Image size
         batch=2,  # Batch size (adjust based on GPU memory)
         lr0=0.001,  # Initial learning rate
@@ -95,6 +95,7 @@ def train_model_from_guess_dataset(
         workers=16,  # Number of workers for data loading
         name="super_prova",  # Name for the training run
     )
+    print("ok")
     counter = 0
     for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
         if counter == 0:
