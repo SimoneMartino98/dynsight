@@ -14,7 +14,6 @@ from pathlib import Path
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 from scipy.optimize import curve_fit
 from scipy.stats import norm
 from ultralytics import YOLO
@@ -278,24 +277,24 @@ def train_model_from_guess_dataset(
     # )
     print("okkkk")
     model = YOLO("runs/detect/pretrained_model/weights/best.pt")
-    for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
-        with Image.open(f"{frames_folder}/{frame_file}") as img:
-            width, height = img.size
-        model.predict(
-            source=f"{frames_folder}/{frame_file}",
-            imgsz=(height, width),
-            augment=True,
-            save=True,
-            save_txt=True,
-            save_conf=True,
-            show_labels=False,
-            name="prediction_name",
-            iou=0.1,
-            max_det=200000,
-            project="prediction_project",
-            line_width=2,
-            agnostic_nms=True,
-        )
+    # for frame_file in sorted(os.listdir(frames_folder), key=_numerical_sort):
+    #     with Image.open(f"{frames_folder}/{frame_file}") as img:
+    #         width, height = img.size
+    #     model.predict(
+    #         source=f"{frames_folder}/{frame_file}",
+    #         imgsz=(height, width),
+    #         augment=True,
+    #         save=True,
+    #         save_txt=True,
+    #         save_conf=True,
+    #         show_labels=False,
+    #         name="prediction_name",
+    #         iou=0.1,
+    #         max_det=200000,
+    #         project="prediction_project",
+    #         line_width=2,
+    #         agnostic_nms=True,
+    #     )
     print("ok2")
     prediction_path = "prediction_project"
     prediction_name = "prediction_name"
