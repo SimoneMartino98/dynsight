@@ -244,6 +244,7 @@ def _gaussian_outliers(
     plt.ylabel("Density")
     plt.tight_layout()
     plt.savefig(f"{plot_name}.png")
+    plt.close()
     # Return the outlier list
     return outlier
 
