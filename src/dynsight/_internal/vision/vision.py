@@ -318,12 +318,14 @@ def train_model_from_guess_dataset(
     )
     n_frames = detections.shape[0]
     outliers_xl = np.array(
-        _gaussian_outliers(np.hstack(frame_xl), thr=0.55),
-        plot_name="outliers_xl",
+        _gaussian_outliers(
+            np.hstack(frame_xl), thr=0.55, plot_name="outliers_xl"
+        )
     )
     outliers_yl = np.array(
-        _gaussian_outliers(np.hstack(frame_yl), thr=0.55),
-        plot_name="outliers_yl",
+        _gaussian_outliers(
+            np.hstack(frame_yl), thr=0.55, plot_name="outliers_yl"
+        )
     )
     for i in range(n_frames):
         current_frame_detections = detections[i]
