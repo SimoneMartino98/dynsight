@@ -166,7 +166,9 @@ def _prediction_reader(
     )
 
 
-def _gaussian_outliers(distribution, thr=1e-5, plot_name="gaussian_outliers"):
+def _gaussian_outliers(
+    distribution, thr: float = 1e-5, plot_name: str = "gaussian_outliers"
+):
     # Plot histogram and use normalized data for fitting
     hist, bin_edges = np.histogram(distribution, bins="auto", density=True)
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
