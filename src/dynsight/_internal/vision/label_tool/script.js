@@ -401,13 +401,26 @@ synthBtn.onclick = async () => {
     const width = parseInt(prompt("Image width?", "640"), 10);
     const height = parseInt(prompt("Image height?", "640"), 10);
 
+    const minObj = parseInt(
+        prompt("Minimum number of objects (palline) per image?", "3"),
+        10,
+    );
+    const maxObj = parseInt(
+        prompt("Maximum number of objects (palline) per image?", "8"),
+        10,
+    );
+
     if (
         !numImages ||
         Number.isNaN(numImages) ||
         !width ||
         Number.isNaN(width) ||
         !height ||
-        Number.isNaN(height)
+        Number.isNaN(height) ||
+        Number.isNaN(minObj) ||
+        Number.isNaN(maxObj) ||
+        minObj < 1 ||
+        maxObj < minObj
     ) {
         alert("Invalid parameters.");
         return;
@@ -460,7 +473,11 @@ synthBtn.onclick = async () => {
         ctx.fillRect(0, 0, width, height);
 
         const placed = [];
-        const numObj = Math.min(5, crops.length);
+        const numObj = Math.min(
+            maxObj,
+            Math.max(minObj, Math.floor(minObj + Math.random() * (maxObj - minObj + 1))),
+        );
+
         for (let i = 0; i < numObj; i++) {
             const crop = crops[Math.floor(Math.random() * crops.length)];
             const img = await loadImage(crop.file);
@@ -479,11 +496,8 @@ synthBtn.onclick = async () => {
                 crop.height,
             );
 
-            const scale =
-                (0.15 + 0.15 * Math.random()) *
-                (Math.min(width, height) / Math.max(crop.width, crop.height));
-            const w = crop.width * scale;
-            const h = crop.height * scale;
+            const w = crop.width;
+            const h = crop.height;
 
             let x, y;
             let tries = 0;
@@ -498,6 +512,8 @@ synthBtn.onclick = async () => {
             ctx.drawImage(c, 0, 0, crop.width, crop.height, x, y, w, h);
             placed.push({ label: crop.label, x, y, w, h });
         }
+
+        console.log(`Placed ${placed.length} objects out of ${numObj}`);
 
         let txt = "";
         placed.forEach((p) => {
