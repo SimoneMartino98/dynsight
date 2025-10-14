@@ -426,149 +426,60 @@ synthBtn.onclick = async () => {
         return;
     }
 
-    const crops = [];
-    const labelMap = {};
-    let nextId = 0;
-    for (const file of images) {
-        const ann = annotations[file.name] || [];
-        for (const c of ann) {
-            crops.push({ file, ...c });
-            if (!(c.label in labelMap)) labelMap[c.label] = nextId++;
-        }
-    }
+    const hasLabels = Object.values(annotations).some(
+        (boxes) => Array.isArray(boxes) && boxes.length > 0,
+    );
 
-    if (crops.length === 0) {
+    if (!hasLabels) {
         alert("No label found.");
         return;
     }
 
-    async function loadImage(file) {
-        return await new Promise((resolve) => {
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-            img.onload = () => {
-                URL.revokeObjectURL(img.src);
-                resolve(img);
-            };
+    const formData = new FormData();
+    formData.append(
+        "params",
+        JSON.stringify({
+            num_images: numImages,
+            width,
+            height,
+            min_objects: minObj,
+            max_objects: maxObj,
+        }),
+    );
+    formData.append("annotations", JSON.stringify(annotations));
+    images.forEach((file) => {
+        formData.append("images", file, file.name);
+    });
+
+    const originalText = synthBtn.textContent;
+    synthBtn.disabled = true;
+    synthBtn.textContent = "Generating...";
+
+    try {
+        const response = await fetch("/synthesize", {
+            method: "POST",
+            body: formData,
         });
-    }
 
-    function overlaps(x, y, w, h, boxes) {
-        return boxes.some((b) => {
-            return !(
-                x + w <= b.x ||
-                x >= b.x + b.w ||
-                y + h <= b.y ||
-                y >= b.y + b.h
-            );
-        });
-    }
-
-    async function createCollage() {
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, width, height);
-
-        const placed = [];
-        const numObj = Math.min(
-            maxObj,
-            Math.max(minObj, Math.floor(minObj + Math.random() * (maxObj - minObj + 1))),
-        );
-
-        for (let i = 0; i < numObj; i++) {
-            const crop = crops[Math.floor(Math.random() * crops.length)];
-            const img = await loadImage(crop.file);
-            const c = document.createElement("canvas");
-            c.width = crop.width;
-            c.height = crop.height;
-            c.getContext("2d").drawImage(
-                img,
-                crop.left,
-                crop.top,
-                crop.width,
-                crop.height,
-                0,
-                0,
-                crop.width,
-                crop.height,
-            );
-
-            const w = crop.width;
-            const h = crop.height;
-
-            let x, y;
-            let tries = 0;
-            do {
-                x = Math.random() * (width - w);
-                y = Math.random() * (height - h);
-                tries += 1;
-            } while (tries < 50 && overlaps(x, y, w, h, placed));
-
-            if (tries === 50) continue;
-
-            ctx.drawImage(c, 0, 0, crop.width, crop.height, x, y, w, h);
-            placed.push({ label: crop.label, x, y, w, h });
+        if (!response.ok) {
+            const message = (await response.text()) || "Generation failed.";
+            throw new Error(message.trim());
         }
 
-        console.log(`Placed ${placed.length} objects out of ${numObj}`);
-
-        let txt = "";
-        placed.forEach((p) => {
-            const cls = labelMap[p.label];
-            const cx = (p.x + p.w / 2) / width;
-            const cy = (p.y + p.h / 2) / height;
-            const ww = p.w / width;
-            const hh = p.h / height;
-            txt += `${cls} ${cx.toFixed(6)} ${cy.toFixed(6)} ${ww.toFixed(
-                6,
-            )} ${hh.toFixed(6)}\n`;
-        });
-
-        const blob = await new Promise((resolve) =>
-            canvas.toBlob((b) => resolve(b), "image/jpeg"),
-        );
-        return { blob, txt };
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "synt_dataset.zip";
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || "Failed to generate synthetic dataset.");
+    } finally {
+        synthBtn.disabled = false;
+        synthBtn.textContent = originalText;
     }
-
-    const zip = new JSZip();
-    const imgTrain = zip.folder("images/train");
-    const imgVal = zip.folder("images/val");
-    const lblTrain = zip.folder("labels/train");
-    const lblVal = zip.folder("labels/val");
-
-    const numTrain = Math.floor(numImages * 0.8);
-
-    for (let i = 0; i < numImages; i++) {
-        const { blob, txt } = await createCollage();
-        const imgName = `synt_${i}.jpg`;
-        const txtName = `synt_${i}.txt`;
-        if (i < numTrain) {
-            imgTrain.file(imgName, blob);
-            lblTrain.file(txtName, txt);
-        } else {
-            imgVal.file(imgName, blob);
-            lblVal.file(txtName, txt);
-        }
-    }
-
-    const names = Object.keys(labelMap);
-    const yaml = `path: .
-    train: images/train
-    val: images/val
-    nc: ${names.length}
-    names: [${names.map((n) => `'${n}'`).join(", ")}]
-    `;
-    zip.file("dataset.yaml", yaml);
-
-    const content = await zip.generateAsync({ type: "blob" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(content);
-    a.download = "synt_dataset.zip";
-    a.click();
-    URL.revokeObjectURL(a.href);
 };
 
 let navigatingAway = false;
