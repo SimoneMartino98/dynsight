@@ -20,6 +20,8 @@ dependencies = [
     "ultralytics",
     "deeptime",
     "infomeasure",
+    "streamlit",
+    "watchdog",
 ]
 
 # Set by cpctools.
@@ -49,6 +51,7 @@ documentation = "https://dynsight.readthedocs.io/en/latest/"
 
 [project.scripts]
 label_tool = "dynsight.vision:label_tool"
+dynsight = "dynsight.gui:launch"
 
 [tool.setuptools_scm]
 
