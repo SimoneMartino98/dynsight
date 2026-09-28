@@ -33,6 +33,9 @@
 
             <button id="loadSessionBtn" class="ghost-btn" title="Load a session file">Load</button>
             <button id="saveSessionBtn" class="ghost-btn" title="Save the session to a file">Save session</button>
+            <button id="predictBtn" class="ghost-btn">Import predictions</button>
+            <button id="benchmarkBtn" class="ghost-btn">Freeze benchmark</button>
+            <button id="compareBtn" class="ghost-btn">Compare models</button>
             <button id="synthBtn" class="ghost-btn">Synthesize</button>
             <button id="exportBtn" class="primary-btn">Export dataset</button>
             <button id="quitBtn" class="danger-btn" title="Stop the server">Quit</button>
@@ -55,14 +58,28 @@
                     <p id="labelHint" class="muted">
                         Add a label, then drag on the image to draw boxes.
                     </p>
+                    <div class="btn-row">
+                        <label class="check"><input id="uncertainCheck" type="checkbox" /> Uncertain box</label>
+                        <label class="check"><input id="borderCheck" type="checkbox" /> Border-cut box</label>
+                    </div>
                 </section>
 
                 <section class="panel grow">
                     <h2>Images</h2>
                     <div class="btn-row">
+                        <label class="check"><input id="reviewedCheck" type="checkbox" /> Reviewed</label>
+                        <label class="check"><input id="testCheck" type="checkbox" /> Test set</label>
+                    </div>
+                    <div class="btn-row">
                         <button id="addImagesBtn" class="ghost-btn">+ Images</button>
                         <button id="addVideoBtn" class="ghost-btn">+ Video</button>
                     </div>
+                    <select id="imageFilter" aria-label="Filter frames">
+                        <option value="all">All frames</option>
+                        <option value="unreviewed">Unreviewed</option>
+                        <option value="reviewed">Reviewed</option>
+                        <option value="test">Test set</option>
+                    </select>
                     <ul id="imageList" class="item-list grow-list"></ul>
                 </section>
             </aside>
@@ -102,7 +119,8 @@
 
         <dialog id="exportDialog">
             <form method="dialog" id="exportForm">
-                <h3>Export YOLO dataset</h3>
+                <h3>Export reviewed training frames</h3>
+                <p class="muted">Only reviewed frames outside the test set are exported. Reviewed empty frames are kept.</p>
                 <label>
                     Dataset name
                     <input type="text" name="name" value="yolo_dataset" required />
@@ -129,6 +147,29 @@
                     <button type="button" class="ghost-btn" data-close>Cancel</button>
                     <button type="submit" class="primary-btn">Export</button>
                 </div>
+            </form>
+        </dialog>
+
+        <dialog id="predictDialog">
+            <form method="dialog" id="predictForm">
+                <h3>Import model predictions</h3>
+                <p class="muted">Predictions replace boxes on unreviewed, non-test frames and remain drafts.</p>
+                <label>Model checkpoint path <input name="model" type="text" required /></label>
+                <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.25" required /></label>
+                <div class="dialog-actions"><button type="button" class="ghost-btn" data-close>Cancel</button><button type="submit" class="primary-btn">Import</button></div>
+            </form>
+        </dialog>
+
+        <dialog id="compareDialog">
+            <form method="dialog" id="compareForm">
+                <h3>Compare models</h3>
+                <label>Frozen benchmark path <input name="benchmark" type="text" required /></label>
+                <label>Model checkpoint paths (one per line)<textarea name="models" rows="3" required></textarea></label>
+                <label>Matching IoU <input name="match_iou" type="number" min="0.01" max="1" step="0.01" value="0.5" required /></label>
+                <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.01" required /></label>
+                <div class="dialog-actions"><button type="button" class="ghost-btn" data-close>Cancel</button><button type="submit" class="primary-btn">Compare</button></div>
+                <pre id="compareResults"></pre>
+                <div id="comparisonFrames"></div>
             </form>
         </dialog>
 

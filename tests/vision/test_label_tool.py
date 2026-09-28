@@ -44,6 +44,7 @@ def workspace(tmp_path: Path) -> _Workspace:
 
 def make_session() -> dict[str, Any]:
     return {
+        "schema_version": 2,
         "labels": [
             {"name": "particle", "color": "#ff0000"},
             {"name": "aggregate", "color": "#00ff00"},
@@ -56,6 +57,10 @@ def make_session() -> dict[str, Any]:
             "img_1.png": [
                 {"label": "particle", "x": 0, "y": 0, "w": 8, "h": 8},
             ],
+        },
+        "frames": {
+            f"img_{i}.png": {"reviewed": True, "split": "train"}
+            for i in range(4)
         },
     }
 
@@ -152,7 +157,7 @@ def test_export_dataset_stable_class_ids(workspace: _Workspace) -> None:
 
 
 def test_export_dataset_errors(workspace: _Workspace) -> None:
-    with pytest.raises(ValueError, match="No labels defined"):
+    with pytest.raises(ValueError, match="No reviewed"):
         export_dataset(workspace, {"labels": []}, name="ds")
     with pytest.raises(ValueError, match="train_split"):
         export_dataset(workspace, make_session(), name="ds", train_split=1.5)
@@ -225,6 +230,7 @@ def test_http_api_roundtrip(tmp_path: Path) -> None:
 
         # Edits are mirrored to the server memory, without disk writes.
         session = make_session()
+        session["frames"]["img.png"] = {"reviewed": True, "split": "train"}
         request("/api/sync", "POST", json.dumps(session).encode("utf-8"))
 
         state = request("/api/state")

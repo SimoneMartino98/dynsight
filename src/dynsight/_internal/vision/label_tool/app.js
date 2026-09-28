@@ -20,6 +20,7 @@ const state = {
     workspace: "",
     images: [], // [{name, width, height}]
     annotations: {}, // name -> [{label, x, y, w, h}]
+    frames: {}, // name -> {source, frame_index, reviewed, split}
     labels: [], // [{name, color}]
     activeLabel: null,
     current: -1,
@@ -36,6 +37,7 @@ let syncTimer = null;
 let dirty = false; // changes not yet saved to a session file
 let sessionPath = null; // last file the session was saved to / loaded from
 let quitAfterSave = false;
+let comparisonOverlay = null;
 
 const imageCache = new Map(); // name -> HTMLImageElement
 const imageVersion = new Map(); // name -> int, bumped on re-upload
@@ -64,6 +66,15 @@ function currentBoxes() {
     if (!img) return [];
     if (!state.annotations[img.name]) state.annotations[img.name] = [];
     return state.annotations[img.name];
+}
+
+for (const [id, field] of [["uncertainCheck", "uncertain"], ["borderCheck", "border_truncated"]]) {
+    $(id).onchange = (event) => {
+        const box = currentBoxes()[state.selection];
+        if (!box) return;
+        box[field] = event.target.checked;
+        markChanged();
+    };
 }
 
 function labelColor(name) {
@@ -140,6 +151,7 @@ function sessionBody() {
     return JSON.stringify({
         labels: state.labels,
         annotations: state.annotations,
+        frames: state.frames,
     });
 }
 
@@ -333,7 +345,12 @@ $("labelForm").onsubmit = (e) => {
 function renderImages() {
     const list = $("imageList");
     list.innerHTML = "";
+    const filter = $("imageFilter").value;
     state.images.forEach((info, idx) => {
+        const frame = state.frames[info.name] || {};
+        if (filter === "unreviewed" && frame.reviewed) return;
+        if (filter === "reviewed" && !frame.reviewed) return;
+        if (filter === "test" && frame.split !== "test") return;
         const li = document.createElement("li");
         if (idx === state.current) li.classList.add("active");
 
@@ -350,7 +367,8 @@ function renderImages() {
         const count = document.createElement("span");
         count.className = "item-badge";
         const n = (state.annotations[info.name] || []).length;
-        count.textContent = n > 0 ? String(n) : "";
+        const meta = state.frames[info.name] || {};
+        count.textContent = `${meta.reviewed ? "✓" : "○"}${meta.split === "test" ? " T" : ""}${n ? ` ${n}` : ""}`;
 
         const del = document.createElement("button");
         del.className = "del-btn";
@@ -369,7 +387,36 @@ function renderImages() {
         ? `${state.current + 1} / ${state.images.length}`
         : "0 / 0";
     $("emptyState").classList.toggle("hidden", state.images.length > 0);
+    const image = currentImage();
+    const meta = image ? (state.frames[image.name] || {}) : {};
+    $("reviewedCheck").checked = Boolean(meta.reviewed);
+    $("reviewedCheck").disabled = !image;
+    $("testCheck").checked = meta.split === "test";
+    $("testCheck").disabled = !image || !meta.reviewed;
 }
+
+$("imageFilter").onchange = renderImages;
+
+$("reviewedCheck").onchange = (e) => {
+    const image = currentImage();
+    if (!image) return;
+    const meta = state.frames[image.name] || {};
+    meta.reviewed = e.target.checked;
+    if (!meta.reviewed) meta.split = "train";
+    state.frames[image.name] = meta;
+    markChanged();
+    renderImages();
+};
+
+$("testCheck").onchange = (e) => {
+    const image = currentImage();
+    if (!image) return;
+    const meta = state.frames[image.name] || {};
+    meta.split = e.target.checked ? "test" : "train";
+    state.frames[image.name] = meta;
+    markChanged();
+    renderImages();
+};
 
 async function deleteImage(name) {
     if (!confirm(`Remove "${name}" and its annotations?`)) return;
@@ -384,6 +431,7 @@ async function deleteImage(name) {
     const idx = state.images.findIndex((i) => i.name === name);
     state.images = state.images.filter((i) => i.name !== name);
     delete state.annotations[name];
+    delete state.frames[name];
     imageCache.delete(name);
     if (state.current >= state.images.length) {
         state.current = state.images.length - 1;
@@ -400,6 +448,7 @@ function selectImage(idx, force = false) {
     if (idx === state.current && !force) return;
     state.current = clamp(idx, -1, state.images.length - 1);
     state.selection = -1;
+    comparisonOverlay = null;
     const info = currentImage();
     if (info && !imageCache.has(info.name)) {
         const img = new Image();
@@ -441,6 +490,9 @@ async function uploadImages(files) {
                     (i) => i.name === info.name,
                 );
                 if (existing >= 0) {
+                    if (state.frames[info.name]?.split === "test") {
+                        throw new Error("Remove this image from the test set before replacing it.");
+                    }
                     state.images[existing] = info;
                     imageCache.delete(info.name);
                     imageVersion.set(
@@ -450,6 +502,8 @@ async function uploadImages(files) {
                 } else {
                     state.images.push(info);
                 }
+                state.frames[info.name] = {source: file.name, reviewed: false, split: "train"};
+                markChanged();
                 done += 1;
             } catch (err) {
                 toast(`"${file.name}": ${err.message}`, "error");
@@ -531,7 +585,13 @@ $("videoForm").onsubmit = async (e) => {
             if (!state.images.some((i) => i.name === info.name)) {
                 state.images.push(info);
             }
+            state.frames[info.name] = {
+                source: info.source, frame_index: info.frame_index,
+                timestamp_ms: info.timestamp_ms,
+                reviewed: false, split: "train",
+            };
         }
+        markChanged();
         toast(`Added ${result.frames.length} frame(s).`, "ok");
         if (state.current < 0) selectImage(0);
         renderImages();
@@ -700,6 +760,11 @@ function hitTest(sx, sy) {
 /* ---------- canvas: interactions ---------- */
 
 canvas.addEventListener("pointerdown", (e) => {
+    const blocked = comparisonOverlay || (currentImage() && state.frames[currentImage().name]?.split === "test");
+    if (blocked && e.button === 0 && !spaceDown) {
+        if (!comparisonOverlay) toast("Remove this frame from the test set before editing boxes.", "error");
+        return;
+    }
     if (!currentImage() && e.button === 0) return;
     canvas.setPointerCapture(e.pointerId);
     const info = currentImage();
@@ -858,12 +923,14 @@ canvas.addEventListener("pointerleave", () => {
 
 canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
+    if (comparisonOverlay) return;
     if (!currentImage()) return;
     const hit = hitTest(e.offsetX, e.offsetY);
     if (hit.box >= 0) deleteBox(hit.box);
 });
 
 function deleteBox(index) {
+    if (currentImage() && state.frames[currentImage().name]?.split === "test") return;
     const boxes = currentBoxes();
     boxes.splice(index, 1);
     if (state.selection === index) state.selection = -1;
@@ -903,6 +970,7 @@ document.addEventListener("keydown", (e) => {
         updateCursor();
         e.preventDefault();
     } else if (e.key === "Escape") {
+        comparisonOverlay = null;
         if (drag && drag.mode === "draw") drag = null;
         state.selection = -1;
         render();
@@ -931,6 +999,11 @@ function render() {
     const rect = stage.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
     const info = currentImage();
+    const selected = currentBoxes()[state.selection];
+    for (const [id, field] of [["uncertainCheck", "uncertain"], ["borderCheck", "border_truncated"]]) {
+        $(id).disabled = !selected;
+        $(id).checked = Boolean(selected && selected[field]);
+    }
     if (!info) return;
 
     const img = imageCache.get(info.name);
@@ -944,10 +1017,22 @@ function render() {
     ctx.lineWidth = 1;
     ctx.strokeRect(ox, oy, info.width * scale, info.height * scale);
 
-    const boxes = currentBoxes();
-    boxes.forEach((box, idx) => {
-        drawBox(box, idx === state.selection, idx === hover.box);
-    });
+    if (comparisonOverlay && comparisonOverlay.name === info.name) {
+        for (const [boxes, color] of [[comparisonOverlay.truth_boxes, "#22c55e"], [comparisonOverlay.prediction_boxes, "#f43f5e"]]) {
+            for (const box of boxes) {
+                ctx.save();
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(ox + box.x * scale, oy + box.y * scale, box.w * scale, box.h * scale);
+                ctx.restore();
+            }
+        }
+    } else {
+        const boxes = currentBoxes();
+        boxes.forEach((box, idx) => {
+            drawBox(box, idx === state.selection, idx === hover.box);
+        });
+    }
 
     if (drag && drag.mode === "draw" && drag.rect) {
         drawBox({ label: state.activeLabel, ...drag.rect }, false, false);
@@ -1036,6 +1121,68 @@ for (const dialog of document.querySelectorAll("dialog")) {
 }
 
 $("exportBtn").onclick = () => $("exportDialog").showModal();
+$("predictBtn").onclick = () => $("predictDialog").showModal();
+$("compareBtn").onclick = () => $("compareDialog").showModal();
+$("benchmarkBtn").onclick = async () => {
+    await syncSession();
+    try {
+        const result = await api("/api/benchmark", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+        $("compareForm").elements.benchmark.value = result.path;
+        toast(`Frozen benchmark: ${result.frames} frame(s).`, "ok", result.path, 12000);
+    } catch (err) { toast(`Benchmark failed: ${err.message}`, "error"); }
+};
+
+$("predictForm").onsubmit = async (e) => {
+    e.preventDefault();
+    await syncSession();
+    showProgress("Importing predictions…");
+    try {
+        const form = e.target.elements;
+        const result = await api("/api/predict", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: form.model.value.trim(), confidence: Number(form.confidence.value)})});
+        Object.assign(state.annotations, result.predictions);
+        state.frames = result.frames;
+        markChanged();
+        renderLabels(); renderImages(); render();
+        $("predictDialog").close();
+        toast(`Imported draft boxes for ${Object.keys(result.predictions).length} frame(s).`, "ok");
+    } catch (err) { toast(`Prediction import failed: ${err.message}`, "error"); }
+    finally { hideProgress(); }
+};
+
+$("compareForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target.elements;
+    showProgress("Comparing models…");
+    try {
+        const result = await api("/api/compare", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({benchmark: form.benchmark.value.trim(), models: form.models.value.split("\n").map(x => x.trim()).filter(Boolean), match_iou: Number(form.match_iou.value), confidence: Number(form.confidence.value), nms_iou: 0.7, imgsz: 640, max_det: 500})});
+        $("compareResults").textContent = result.reports.map(r => `${r.model}: P ${r.precision.toFixed(3)}, R ${r.recall.toFixed(3)}, F1 ${r.f1.toFixed(3)}, TP ${r.tp}, FP ${r.fp}, FN ${r.fn}`).join("\n") + `\nFull frame-level report: ${result.path}`;
+        const list = $("comparisonFrames");
+        list.innerHTML = "";
+        for (const report of result.reports) {
+            const heading = document.createElement("h4");
+            heading.textContent = report.model;
+            list.appendChild(heading);
+            for (const frame of [...report.per_frame].sort((a, b) => (b.fp + b.fn) - (a.fp + a.fn))) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "ghost-btn";
+                button.textContent = `${frame.name}: ${frame.tp} found, ${frame.fp} extra, ${frame.fn} missed`;
+                button.onclick = () => {
+                    const idx = state.images.findIndex(image => image.name === frame.name);
+                    if (idx >= 0) {
+                        selectImage(idx, true);
+                        comparisonOverlay = frame;
+                        render();
+                        $("compareDialog").close();
+                        toast("Overlay: green = benchmark, red = prediction", "ok");
+                    }
+                };
+                list.appendChild(button);
+            }
+        }
+    } catch (err) { toast(`Comparison failed: ${err.message}`, "error"); }
+    finally { hideProgress(); }
+};
 $("synthBtn").onclick = () => $("synthDialog").showModal();
 
 $("exportForm").onsubmit = async (e) => {
@@ -1140,6 +1287,7 @@ $("saveForm").onsubmit = async (e) => {
                 path,
                 labels: state.labels,
                 annotations: state.annotations,
+                frames: state.frames,
             }),
         });
         sessionPath = result.path;
@@ -1180,6 +1328,7 @@ $("loadForm").onsubmit = async (e) => {
         });
         state.labels = session.labels || [];
         state.annotations = session.annotations || {};
+        state.frames = session.frames || {};
         state.activeLabel = null;
         state.selection = -1;
         sessionPath = path;
@@ -1235,6 +1384,7 @@ async function init() {
         state.images = data.images;
         state.labels = data.labels;
         state.annotations = data.annotations;
+        state.frames = data.frames || {};
         sessionPath = data.session_path;
         dirty = Boolean(data.dirty);
         $("workspacePath").textContent = data.workspace;

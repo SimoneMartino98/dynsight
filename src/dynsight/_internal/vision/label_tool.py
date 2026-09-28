@@ -11,6 +11,7 @@ directly to disk in the exact layout expected by
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
@@ -21,11 +22,19 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 from urllib.parse import parse_qs, urlparse
 
 import yaml
 from PIL import Image
+
+from dynsight._internal.vision.review import (
+    benchmark_snapshot,
+    evaluate_predictions,
+)
+
+if TYPE_CHECKING:
+    from ultralytics.engine.results import Results
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +74,7 @@ def _image_size(path: Path) -> tuple[int, int]:
 
 def _empty_session() -> dict[str, Any]:
     """Return a new empty labeling session."""
-    return {"labels": [], "annotations": {}}
+    return {"schema_version": 2, "labels": [], "annotations": {}, "frames": {}}
 
 
 def _normalize_session_path(raw: object) -> Path:
@@ -102,8 +111,10 @@ def load_session_file(raw_path: object) -> dict[str, Any]:
         msg = f"'{path}' is not a valid session file."
         raise TypeError(msg)
     return {
+        "schema_version": 2,
         "labels": data.get("labels", []),
         "annotations": data.get("annotations", {}),
+        "frames": data.get("frames", {}),
     }
 
 
@@ -151,7 +162,7 @@ class _Workspace:
         on_progress: _ProgressCallback | None = None,
     ) -> list[dict[str, Any]]:
         """Extract frames from an uploaded video into the workspace."""
-        import cv2  # noqa: PLC0415 (heavy import, only needed here)
+        import cv2  # heavy import, only needed here
 
         safe = _safe_name(name)
         if Path(safe).suffix.lower() not in _VIDEO_SUFFIXES:
@@ -182,6 +193,9 @@ class _Workspace:
                             "name": frame_name,
                             "width": int(width),
                             "height": int(height),
+                            "source": safe,
+                            "frame_index": index,
+                            "timestamp_ms": capture.get(cv2.CAP_PROP_POS_MSEC),
                         }
                     )
                 index += 1
@@ -224,6 +238,9 @@ def _yolo_lines(
 
 def _dataset_dirs(dataset_path: Path) -> dict[str, Path]:
     """Create and return the YOLO dataset directory layout."""
+    if dataset_path.exists() and any(dataset_path.iterdir()):
+        msg = f"Dataset directory already contains files: {dataset_path}"
+        raise ValueError(msg)
     dirs = {
         "images/train": dataset_path / "images" / "train",
         "images/val": dataset_path / "images" / "val",
@@ -233,6 +250,18 @@ def _dataset_dirs(dataset_path: Path) -> dict[str, Path]:
     for path in dirs.values():
         path.mkdir(parents=True, exist_ok=True)
     return dirs
+
+
+def _frozen_frames(workspace: _Workspace) -> list[dict[str, Any]]:
+    """Find source frames referenced by saved benchmark snapshots."""
+    frames = []
+    for path in (workspace.root / "benchmarks").glob("*.json"):
+        if path.name.startswith("comparison_"):
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if payload.get("schema_version") == 1:
+            frames.extend(payload.get("frames", []))
+    return frames
 
 
 def _write_dataset_yaml(dataset_path: Path, names: list[str]) -> Path:
@@ -278,9 +307,14 @@ def export_dataset(
     if not 0.0 < train_split < 1.0:
         msg = "train_split must be between 0 and 1."
         raise ValueError(msg)
-    images = workspace.list_images()
+    images = [
+        info
+        for info in workspace.list_images()
+        if session.get("frames", {}).get(info["name"], {}).get("reviewed")
+        and session["frames"][info["name"]].get("split") != "test"
+    ]
     if not images:
-        msg = "No images in the workspace."
+        msg = "No reviewed non-test images in the workspace."
         raise ValueError(msg)
     names = [label["name"] for label in session.get("labels", [])]
     if not names:
@@ -293,12 +327,33 @@ def export_dataset(
     dataset_path = (base / _safe_name(name)).resolve()
     dirs = _dataset_dirs(dataset_path)
 
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for info in images:
+        source = session["frames"][info["name"]].get("source", info["name"])
+        groups.setdefault(source, []).append(info)
+    group_names = sorted(groups)
     if shuffle:
-        random.Random(seed).shuffle(images)  # noqa: S311
-    num_train = _split_count(len(images), train_split)
+        random.Random(seed).shuffle(group_names)  # noqa: S311
+    if len(group_names) > 1:
+        train_groups = set(
+            group_names[: _split_count(len(group_names), train_split)]
+        )
+        assignments = {
+            info["name"]: "train" if source in train_groups else "val"
+            for source, members in groups.items()
+            for info in members
+        }
+        split_policy = "grouped_by_source"
+    else:
+        num_train = _split_count(len(images), train_split)
+        assignments = {
+            info["name"]: "train" if idx < num_train else "val"
+            for idx, info in enumerate(images)
+        }
+        split_policy = "single_source_frame_split_correlated"
 
     for idx, info in enumerate(images):
-        subset = "train" if idx < num_train else "val"
+        subset = assignments[info["name"]]
         src = workspace.images_dir / info["name"]
         shutil.copy2(src, dirs[f"images/{subset}"] / info["name"])
         txt = _yolo_lines(
@@ -313,11 +368,38 @@ def export_dataset(
             on_progress(idx + 1, len(images))
 
     yaml_path = _write_dataset_yaml(dataset_path, names)
+    num_train = sum(split == "train" for split in assignments.values())
+    (dataset_path / "frame_manifest.json").write_text(
+        json.dumps(
+            {
+                "split_policy": split_policy,
+                "frames": [
+                    {
+                        "name": info["name"],
+                        "source": session["frames"][info["name"]].get(
+                            "source", info["name"]
+                        ),
+                        "frame_index": session["frames"][info["name"]].get(
+                            "frame_index"
+                        ),
+                        "timestamp_ms": session["frames"][info["name"]].get(
+                            "timestamp_ms"
+                        ),
+                        "split": assignments[info["name"]],
+                    }
+                    for info in images
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return {
         "path": str(dataset_path),
         "yaml": str(yaml_path),
         "num_train": num_train,
         "num_val": len(images) - num_train,
+        "split_policy": split_policy,
     }
 
 
@@ -374,6 +456,8 @@ def synthesize_dataset(
         for image_name, boxes in annotations.items()
         for box in boxes
         if box["label"] in class_ids
+        and session.get("frames", {}).get(image_name, {}).get("reviewed")
+        and session["frames"][image_name].get("split") != "test"
         and (workspace.images_dir / image_name).is_file()
     ]
     if not crops:
@@ -521,7 +605,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         parsed = parse_qs(urlparse(self.path).query)
         return {key: values[0] for key, values in parsed.items()}
 
-    def do_GET(self) -> None:
+    def do_GET(self) -> None:  # noqa: N802
         """Serve the GUI, workspace images and the state endpoint."""
         route = urlparse(self.path).path
         if route in _STATIC_FILES:
@@ -543,7 +627,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
-    def do_POST(self) -> None:
+    def do_POST(self) -> None:  # noqa: N802
         """Dispatch API mutations."""
         route = urlparse(self.path).path
         handlers = {
@@ -553,6 +637,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "/api/images": self._handle_upload_image,
             "/api/video": self._handle_upload_video,
             "/api/export": self._handle_export,
+            "/api/predict": self._handle_predict,
+            "/api/benchmark": self._handle_benchmark,
+            "/api/compare": self._handle_compare,
             "/api/synthesize": self._handle_synthesize,
             "/api/shutdown": self._handle_shutdown,
         }
@@ -562,7 +649,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
             return
         self._api(handler)
 
-    def do_DELETE(self) -> None:
+    def do_DELETE(self) -> None:  # noqa: N802
         """Delete a workspace image."""
         route = urlparse(self.path).path
         if route == "/api/images":
@@ -585,8 +672,10 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def _session_from(self, body: dict[str, Any]) -> dict[str, Any]:
         return {
+            "schema_version": 2,
             "labels": body.get("labels", []),
             "annotations": body.get("annotations", {}),
+            "frames": body.get("frames", {}),
         }
 
     def _handle_state(self) -> dict[str, Any]:
@@ -596,6 +685,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "images": self._workspace.list_images(),
             "labels": session.get("labels", []),
             "annotations": session.get("annotations", {}),
+            "frames": session.get("frames", {}),
             "session_path": self.server.session_path,
             "dirty": self.server.session_dirty,
         }
@@ -613,7 +703,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
     def _handle_save_session(self) -> dict[str, Any]:
         """Write the session to an explicitly chosen file."""
         body = self._json_body()
-        if "labels" in body or "annotations" in body:
+        if "labels" in body or "annotations" in body or "frames" in body:
             self.server.session = self._session_from(body)
         path = save_session_file(self.server.session, body.get("path"))
         self.server.session_path = str(path)
@@ -633,15 +723,37 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def _handle_upload_image(self) -> dict[str, Any]:
         query = self._query()
-        return self._workspace.add_image(query["name"], self._read_body())
+        name = _safe_name(query["name"])
+        if any(
+            frame["name"] == name for frame in _frozen_frames(self._workspace)
+        ):
+            msg = "This image belongs to a frozen benchmark."
+            raise ValueError(msg)
+        if self.server.session["frames"].get(name, {}).get("split") == "test":
+            msg = "Remove this image from the test set before replacing it."
+            raise ValueError(msg)
+        return self._workspace.add_image(name, self._read_body())
 
     def _handle_upload_video(self) -> dict[str, Any]:
         query = self._query()
+        name = _safe_name(query["name"])
+        if any(
+            frame.get("source") == name
+            for frame in _frozen_frames(self._workspace)
+        ):
+            msg = "This video has frames in a frozen benchmark."
+            raise ValueError(msg)
+        if any(
+            meta.get("source") == name and meta.get("split") == "test"
+            for meta in self.server.session["frames"].values()
+        ):
+            msg = "Remove test frames from this video before replacing it."
+            raise ValueError(msg)
         data = self._read_body()
         on_progress = self.server.start_progress("Extracting frames")
         try:
             frames = self._workspace.add_video(
-                query["name"],
+                name,
                 data,
                 stride=int(query.get("stride", "1")),
                 on_progress=on_progress,
@@ -652,8 +764,206 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
     def _handle_delete_image(self) -> dict[str, Any]:
         query = self._query()
-        self._workspace.delete_image(query["name"])
+        name = _safe_name(query["name"])
+        if any(
+            frame["name"] == name for frame in _frozen_frames(self._workspace)
+        ):
+            msg = "This image belongs to a frozen benchmark."
+            raise ValueError(msg)
+        if self.server.session["frames"].get(name, {}).get("split") == "test":
+            msg = "Remove this image from the test set before deleting it."
+            raise ValueError(msg)
+        self._workspace.delete_image(name)
+        self.server.session["annotations"].pop(name, None)
+        self.server.session["frames"].pop(name, None)
         return {"deleted": True}
+
+    def _handle_predict(self) -> dict[str, Any]:
+        """Import model boxes as editable, unreviewed drafts."""
+        from ultralytics import YOLO
+
+        body = self._json_body()
+        model_path = str(body.get("model", "")).strip()
+        if not model_path:
+            msg = "A model path is required."
+            raise ValueError(msg)
+        model = YOLO(model_path)
+        names = model.names
+        labels = self.server.session["labels"]
+        if not labels:
+            self.server.session["labels"] = [
+                {"name": str(names[i]), "color": "#3b82f6"}
+                for i in sorted(names)
+            ]
+            labels = self.server.session["labels"]
+        elif [label["name"] for label in labels] != [
+            str(names[i]) for i in sorted(names)
+        ]:
+            msg = "Model classes must match the session labels in order."
+            raise ValueError(msg)
+        predictions = {}
+        for info in self._workspace.list_images():
+            name = info["name"]
+            meta = self.server.session["frames"].setdefault(name, {})
+            if meta.get("reviewed") or meta.get("split") == "test":
+                continue
+            result = cast(
+                "list[Results]",
+                model.predict(
+                    str(self._workspace.images_dir / name),
+                    conf=float(body.get("confidence", 0.25)),
+                    iou=float(body.get("nms_iou", 0.7)),
+                    imgsz=int(body.get("imgsz", 640)),
+                    max_det=int(body.get("max_det", 500)),
+                    verbose=False,
+                ),
+            )[0]
+            boxes = []
+            box_data = result.boxes
+            rows = (
+                zip(
+                    box_data.xyxy.tolist(),
+                    box_data.cls.tolist(),
+                    box_data.conf.tolist(),
+                )
+                if box_data is not None
+                else []
+            )
+            for xyxy, cls, conf in rows:
+                x1, y1, x2, y2 = xyxy
+                boxes.append(
+                    {
+                        "label": str(names[int(cls)]),
+                        "x": x1,
+                        "y": y1,
+                        "w": x2 - x1,
+                        "h": y2 - y1,
+                        "confidence": conf,
+                        "model": model_path,
+                        "original_box": [x1, y1, x2, y2],
+                    }
+                )
+            predictions[name] = boxes
+            meta["reviewed"] = False
+            meta["prediction_model"] = model_path
+            self.server.session["annotations"][name] = boxes
+        self.server.session_dirty = True
+        return {
+            "predictions": predictions,
+            "frames": self.server.session["frames"],
+        }
+
+    def _handle_benchmark(self) -> dict[str, Any]:
+        snapshot = benchmark_snapshot(
+            self._workspace.images_dir, self.server.session
+        )
+        path = (
+            self._workspace.root
+            / "benchmarks"
+            / f"{snapshot['benchmark_id']}.json"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+        return {
+            "path": str(path),
+            "benchmark_id": snapshot["benchmark_id"],
+            "frames": len(snapshot["frames"]),
+        }
+
+    def _handle_compare(self) -> dict[str, Any]:
+        from ultralytics import YOLO
+
+        body = self._json_body()
+        path = Path(str(body.get("benchmark", "")))
+        if (
+            not path.is_file()
+            or path.parent.resolve()
+            != (self._workspace.root / "benchmarks").resolve()
+        ):
+            msg = "Select a benchmark frozen in this workspace."
+            raise ValueError(msg)
+        benchmark = json.loads(path.read_text(encoding="utf-8"))
+        models = body.get("models", [])
+        if not isinstance(models, list) or not models:
+            msg = "At least one model path is required."
+            raise ValueError(msg)
+        reports = []
+        for model_path in models:
+            model = YOLO(str(model_path))
+            predictions = {}
+            for frame in benchmark["frames"]:
+                image_path = self._workspace.images_dir / frame["name"]
+                if (
+                    hashlib.sha256(image_path.read_bytes()).hexdigest()
+                    != frame["sha256"]
+                ):
+                    msg = f"Benchmark image changed: {frame['name']}"
+                    raise ValueError(msg)
+                result = cast(
+                    "list[Results]",
+                    model.predict(
+                        str(image_path),
+                        conf=float(body.get("confidence", 0.01)),
+                        iou=float(body.get("nms_iou", 0.7)),
+                        imgsz=int(body.get("imgsz", 640)),
+                        max_det=int(body.get("max_det", 500)),
+                        verbose=False,
+                    ),
+                )[0]
+                box_data = result.boxes
+                rows = (
+                    zip(
+                        box_data.xyxy.tolist(),
+                        box_data.cls.tolist(),
+                        box_data.conf.tolist(),
+                    )
+                    if box_data is not None
+                    else []
+                )
+                predictions[frame["name"]] = [
+                    {
+                        "label": str(model.names[int(cls)]),
+                        "x": xyxy[0],
+                        "y": xyxy[1],
+                        "w": xyxy[2] - xyxy[0],
+                        "h": xyxy[3] - xyxy[1],
+                        "confidence": conf,
+                    }
+                    for xyxy, cls, conf in rows
+                ]
+            report = evaluate_predictions(
+                benchmark, predictions, float(body.get("match_iou", 0.5))
+            )
+            report["model"] = str(model_path)
+            model_file = Path(str(model_path))
+            report["model_sha256"] = (
+                hashlib.sha256(model_file.read_bytes()).hexdigest()
+                if model_file.is_file()
+                else None
+            )
+            report["inference"] = {
+                key: body.get(key)
+                for key in ("confidence", "nms_iou", "imgsz", "max_det")
+            }
+            reports.append(report)
+        output = {"benchmark": str(path), "reports": reports}
+        comparison_id = hashlib.sha256(
+            json.dumps(
+                {
+                    "benchmark": benchmark["benchmark_id"],
+                    "models": models,
+                    "settings": body,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()[:12]
+        report_path = (
+            self._workspace.root
+            / "benchmarks"
+            / f"comparison_{benchmark['benchmark_id']}_{comparison_id}.json"
+        )
+        report_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+        return {"path": str(report_path), **output}
 
     def _handle_export(self) -> dict[str, Any]:
         body = self._json_body()

@@ -67,8 +67,10 @@ The Graphical User Interface is divided in three main panels:
 
 * **The Images panel** (bottom left): add content with ``+ Images`` or
   ``+ Video`` (frames are extracted at a chosen interval), or by dragging
-  and dropping files onto the canvas. Each entry shows a thumbnail and its
-  number of annotations.
+  and dropping files onto the canvas. Each entry shows a thumbnail, review
+  status, test-set status, and annotation count. Select a frame and use
+  **Reviewed** after checking all boxes. A reviewed frame with no boxes is a
+  valid negative example. **Test set** is available only for reviewed frames.
 
 * **The Canvas** (right): displays the current image and the bounding
   boxes.
@@ -87,10 +89,42 @@ Two export options are available in the top bar. Both write the dataset
 folder directly to disk (inside the workspace by default) together with a
 ready-to-use ``dataset.yaml``:
 
-* **Export dataset**: exports the loaded images and their labels as a YOLO
-  dataset, with a configurable (and optionally shuffled) train/validation
-  split.
+* **Export dataset**: exports only reviewed frames outside the test set as a
+  YOLO dataset, with a configurable train/validation split. Frames from the
+  same source video stay in one split when multiple sources exist. With just
+  one source, the exported ``frame_manifest.json`` explicitly identifies the
+  correlated frame split. Older sessions load with frames unreviewed until
+  they are explicitly checked.
 
-* **Synthesize**: creates a synthetic dataset by pasting the annotated
-  crops at random, non-overlapping positions onto uniform backgrounds
+* **Synthesize**: creates a synthetic dataset from reviewed, non-test crops
+  pasted at random, non-overlapping positions onto uniform backgrounds
   (useful when only a few labeled images are available).
+
+---------------------------
+Review and compare models
+---------------------------
+
+Use **Import predictions** to select a YOLO checkpoint. The tool runs it on
+unreviewed, non-test images and loads its boxes as editable drafts, retaining
+their confidence and model path in the session. Correct the boxes and mark
+each checked frame **Reviewed**. Existing reviewed and test frames are not
+overwritten by another prediction import.
+
+Mark a selection of reviewed real frames **Test set**, then choose **Freeze
+benchmark**. This writes a JSON snapshot under ``workspace/benchmarks`` with
+the reviewed boxes, source frame numbers where available, and image hashes.
+Keep its path for future comparisons. The snapshot remains fixed if the
+working session is edited later, and its source images cannot be replaced or
+deleted from the label tool.
+
+Use **Compare models** with that benchmark path and one checkpoint path per
+line. The tool runs every checkpoint on the same frozen images and saves a
+JSON report with frame-level matches, false positives, misses, count error,
+and aggregate precision, recall, and F1. Click a frame in the comparison
+results to inspect an overlay: green boxes are frozen benchmark annotations
+and red boxes are model predictions. Press Escape or navigate to another
+frame to leave the overlay. Matching is same-class, greedy by prediction
+confidence at the chosen box IoU. The report records inference settings and
+the benchmark identifier. These metrics describe only the selected
+annotated frames; frame selection and annotation quality remain the main
+limits on interpretation.
