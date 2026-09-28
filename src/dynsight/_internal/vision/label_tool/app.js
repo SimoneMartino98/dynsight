@@ -1138,7 +1138,7 @@ $("predictForm").onsubmit = async (e) => {
     showProgress("Importing predictions…");
     try {
         const form = e.target.elements;
-        const result = await api("/api/predict", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: form.model.value.trim(), confidence: Number(form.confidence.value)})});
+        const result = await api("/api/predict", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: form.model.value.trim(), confidence: Number(form.confidence.value), nms_iou: Number(form.nms_iou.value), imgsz: Number(form.imgsz.value), max_det: Number(form.max_det.value), device: form.device.value.trim() || null})});
         Object.assign(state.annotations, result.predictions);
         state.frames = result.frames;
         markChanged();
@@ -1154,7 +1154,7 @@ $("compareForm").onsubmit = async (e) => {
     const form = e.target.elements;
     showProgress("Comparing models…");
     try {
-        const result = await api("/api/compare", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({benchmark: form.benchmark.value.trim(), models: form.models.value.split("\n").map(x => x.trim()).filter(Boolean), match_iou: Number(form.match_iou.value), confidence: Number(form.confidence.value), nms_iou: 0.7, imgsz: 640, max_det: 500})});
+        const result = await api("/api/compare", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({benchmark: form.benchmark.value.trim(), models: form.models.value.split("\n").map(x => x.trim()).filter(Boolean), match_iou: Number(form.match_iou.value), confidence: Number(form.confidence.value), nms_iou: Number(form.nms_iou.value), imgsz: Number(form.imgsz.value), max_det: Number(form.max_det.value), device: form.device.value.trim() || null})});
         $("compareResults").textContent = result.reports.map(r => `${r.model}: P ${r.precision.toFixed(3)}, R ${r.recall.toFixed(3)}, F1 ${r.f1.toFixed(3)}, TP ${r.tp}, FP ${r.fp}, FN ${r.fn}`).join("\n") + `\nFull frame-level report: ${result.path}`;
         const list = $("comparisonFrames");
         list.innerHTML = "";

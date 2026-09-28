@@ -156,6 +156,10 @@
                 <p class="muted">Predictions replace boxes on unreviewed, non-test frames and remain drafts.</p>
                 <label>Model checkpoint path <input name="model" type="text" required /></label>
                 <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.25" required /></label>
+                <label>NMS IoU <input name="nms_iou" type="number" min="0.01" max="1" step="0.01" value="0.7" required /></label>
+                <label>Image size <input name="imgsz" type="number" min="32" step="32" value="640" required /></label>
+                <label>Maximum detections <input name="max_det" type="number" min="1" value="500" required /></label>
+                <label>Device (optional) <input name="device" type="text" placeholder="cpu, 0, 3, or mps" /></label>
                 <div class="dialog-actions"><button type="button" class="ghost-btn" data-close>Cancel</button><button type="submit" class="primary-btn">Import</button></div>
             </form>
         </dialog>
@@ -167,6 +171,10 @@
                 <label>Model checkpoint paths (one per line)<textarea name="models" rows="3" required></textarea></label>
                 <label>Matching IoU <input name="match_iou" type="number" min="0.01" max="1" step="0.01" value="0.5" required /></label>
                 <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.01" required /></label>
+                <label>NMS IoU <input name="nms_iou" type="number" min="0.01" max="1" step="0.01" value="0.7" required /></label>
+                <label>Image size <input name="imgsz" type="number" min="32" step="32" value="640" required /></label>
+                <label>Maximum detections <input name="max_det" type="number" min="1" value="500" required /></label>
+                <label>Device (optional) <input name="device" type="text" placeholder="cpu, 0, 3, or mps" /></label>
                 <div class="dialog-actions"><button type="button" class="ghost-btn" data-close>Cancel</button><button type="submit" class="primary-btn">Compare</button></div>
                 <pre id="compareResults"></pre>
                 <div id="comparisonFrames"></div>

@@ -815,6 +815,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     iou=float(body.get("nms_iou", 0.7)),
                     imgsz=int(body.get("imgsz", 640)),
                     max_det=int(body.get("max_det", 500)),
+                    device=body.get("device") or None,
                     verbose=False,
                 ),
             )[0]
@@ -907,6 +908,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         iou=float(body.get("nms_iou", 0.7)),
                         imgsz=int(body.get("imgsz", 640)),
                         max_det=int(body.get("max_det", 500)),
+                        device=body.get("device") or None,
                         verbose=False,
                     ),
                 )[0]
@@ -943,7 +945,13 @@ class _RequestHandler(BaseHTTPRequestHandler):
             )
             report["inference"] = {
                 key: body.get(key)
-                for key in ("confidence", "nms_iou", "imgsz", "max_det")
+                for key in (
+                    "confidence",
+                    "nms_iou",
+                    "imgsz",
+                    "max_det",
+                    "device",
+                )
             }
             reports.append(report)
         output = {"benchmark": str(path), "reports": reports}

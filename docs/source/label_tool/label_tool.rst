@@ -108,7 +108,8 @@ Use **Import predictions** to select a YOLO checkpoint. The tool runs it on
 unreviewed, non-test images and loads its boxes as editable drafts, retaining
 their confidence and model path in the session. Correct the boxes and mark
 each checked frame **Reviewed**. Existing reviewed and test frames are not
-overwritten by another prediction import.
+overwritten by another prediction import. Set confidence, NMS IoU, image
+size, maximum detections, and device to match the run being reviewed.
 
 Mark a selection of reviewed real frames **Test set**, then choose **Freeze
 benchmark**. This writes a JSON snapshot under ``workspace/benchmarks`` with

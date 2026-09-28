@@ -118,13 +118,16 @@ def test_benchmark_and_comparison_api(
         def tolist(self) -> list:
             return list(self)
 
+    settings: list[dict[str, object]] = []
+
     class FakeYOLO:
         names: ClassVar[dict[int, str]] = {0: "cell"}
 
         def __init__(self, _path: str) -> None:
             pass
 
-        def predict(self, _path: str, **_kwargs: object) -> list:
+        def predict(self, _path: str, **kwargs: object) -> list:
+            settings.append(kwargs)
             return [
                 SimpleNamespace(
                     boxes=SimpleNamespace(
@@ -173,12 +176,21 @@ def test_benchmark_and_comparison_api(
             urllib.request.urlopen(request)  # noqa: S310
         result = post(
             "/api/compare",
-            {"benchmark": benchmark["path"], "models": ["first.pt"]},
+            {
+                "benchmark": benchmark["path"],
+                "models": ["first.pt"],
+                "imgsz": 1024,
+                "max_det": 1000,
+                "device": "3",
+            },
         )
         assert result["reports"][0]["tp"] == 1
         assert result["reports"][0]["fp"] == 0
         assert result["reports"][0]["fn"] == 0
         assert result["reports"][0]["per_frame"][0]["name"] == "frame.png"
+        assert settings[0]["imgsz"] == 1024  # noqa: PLR2004
+        assert settings[0]["max_det"] == 1000  # noqa: PLR2004
+        assert settings[0]["device"] == "3"
     finally:
         server.shutdown()
         server.server_close()
