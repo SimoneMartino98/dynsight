@@ -4,6 +4,7 @@ import io
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import TYPE_CHECKING, Any
 
@@ -241,6 +242,20 @@ def test_http_api_roundtrip(tmp_path: Path) -> None:
 
         # No long operation running: the progress endpoint is idle.
         assert request("/api/progress") == {"active": False}
+
+        # The picker lists remote directories and only relevant file types.
+        (tmp_path / "saved").mkdir()
+        (tmp_path / "saved" / "session.json").write_text("{}")
+        (tmp_path / "saved" / "notes.txt").write_text("ignore")
+        browse = request(
+            "/api/files?kind=session&path="
+            + urllib.parse.quote(str(tmp_path / "saved"))
+        )
+        assert browse["path"] == str((tmp_path / "saved").resolve())
+        assert browse["parent"] == str(tmp_path.resolve())
+        assert [item["name"] for item in browse["entries"]] == ["session.json"]
+        with pytest.raises(urllib.error.HTTPError):
+            request("/api/files?kind=invalid")
 
         # Saving requires an explicit path.
         with pytest.raises(urllib.error.HTTPError):

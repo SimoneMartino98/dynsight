@@ -51,6 +51,12 @@ _ProgressCallback = Callable[[int, int], None]
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+_BROWSE_SUFFIXES = {
+    "session": {".json"},
+    "model": {".pt"},
+    "benchmark": {".json"},
+}
+_MAX_BROWSE_ENTRIES = 500
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
 
 _MIN_SPLIT_IMAGES = 2
@@ -64,6 +70,55 @@ def _safe_name(raw: str) -> str:
         msg = f"Invalid file name: '{raw}'"
         raise ValueError(msg)
     return name
+
+
+def _browse_directory(
+    raw_path: str, kind: str, workspace: Path
+) -> dict[str, Any]:
+    """List one server-side directory for the read-only path picker."""
+    if kind not in _BROWSE_SUFFIXES:
+        msg = "Unsupported file type."
+        raise ValueError(msg)
+    path = Path(raw_path).expanduser().resolve() if raw_path else workspace
+    if not path.is_dir():
+        msg = f"Directory not found: '{path}'"
+        raise ValueError(msg)
+    entries = []
+    try:
+        children = sorted(
+            path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())
+        )
+        for child in children:
+            if child.name.startswith("."):
+                continue
+            try:
+                if child.is_dir():
+                    entries.append(
+                        {
+                            "name": child.name,
+                            "path": str(child),
+                            "is_dir": True,
+                        }
+                    )
+                elif (
+                    child.is_file()
+                    and child.suffix.lower() in _BROWSE_SUFFIXES[kind]
+                ):
+                    entries.append(
+                        {
+                            "name": child.name,
+                            "path": str(child),
+                            "is_dir": False,
+                        }
+                    )
+            except OSError:
+                continue
+            if len(entries) >= _MAX_BROWSE_ENTRIES:
+                break
+    except PermissionError as e:
+        msg = f"Cannot read directory: '{path}'"
+        raise ValueError(msg) from e
+    return {"path": str(path), "parent": str(path.parent), "entries": entries}
 
 
 def _image_size(path: Path) -> tuple[int, int]:
@@ -624,6 +679,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self._api(self._handle_state)
         elif route == "/api/progress":
             self._api(self._handle_progress)
+        elif route == "/api/files":
+            self._api(self._handle_files)
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -693,6 +750,12 @@ class _RequestHandler(BaseHTTPRequestHandler):
     def _handle_progress(self) -> dict[str, Any]:
         with self.server.progress_lock:
             return dict(self.server.progress)
+
+    def _handle_files(self) -> dict[str, Any]:
+        query = self._query()
+        return _browse_directory(
+            query.get("path", ""), query.get("kind", ""), self._workspace.root
+        )
 
     def _handle_sync(self) -> dict[str, Any]:
         """Update the in-memory session (no disk write)."""

@@ -154,7 +154,7 @@
             <form method="dialog" id="predictForm">
                 <h3>Import model predictions</h3>
                 <p class="muted">Predictions replace boxes on unreviewed, non-test frames and remain drafts.</p>
-                <label>Model checkpoint path <input name="model" type="text" required /></label>
+                <label for="predictModelPath">Model checkpoint path</label><div class="path-field"><input id="predictModelPath" name="model" type="text" required /><button type="button" class="ghost-btn browse-btn" data-kind="model" data-target="predictForm:model">Browse…</button></div>
                 <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.25" required /></label>
                 <label>NMS IoU <input name="nms_iou" type="number" min="0.01" max="1" step="0.01" value="0.7" required /></label>
                 <label>Image size <input name="imgsz" type="number" min="32" step="32" value="640" required /></label>
@@ -167,8 +167,8 @@
         <dialog id="compareDialog">
             <form method="dialog" id="compareForm">
                 <h3>Compare models</h3>
-                <label>Frozen benchmark path <input name="benchmark" type="text" required /></label>
-                <label>Model checkpoint paths (one per line)<textarea name="models" rows="3" required></textarea></label>
+                <label for="compareBenchmarkPath">Frozen benchmark path</label><div class="path-field"><input id="compareBenchmarkPath" name="benchmark" type="text" required /><button type="button" class="ghost-btn browse-btn" data-kind="benchmark" data-target="compareForm:benchmark">Browse…</button></div>
+                <label for="compareModelsPaths">Model checkpoint paths (one per line)</label><div class="path-field"><textarea id="compareModelsPaths" name="models" rows="3" required></textarea><button type="button" class="ghost-btn browse-btn" data-kind="model" data-target="compareForm:models" data-append="true">Add…</button></div>
                 <label>Matching IoU <input name="match_iou" type="number" min="0.01" max="1" step="0.01" value="0.5" required /></label>
                 <label>Minimum confidence <input name="confidence" type="number" min="0" max="1" step="0.01" value="0.01" required /></label>
                 <label>NMS IoU <input name="nms_iou" type="number" min="0.01" max="1" step="0.01" value="0.7" required /></label>
@@ -250,15 +250,13 @@
                     Labels and boxes are written to a JSON file that can be
                     loaded back later.
                 </p>
-                <label>
-                    Session file path
-                    <input
+                <label for="saveSessionPath">Session file path</label><div class="path-field"><input
+                        id="saveSessionPath"
                         type="text"
                         name="path"
                         placeholder="/path/to/session.json"
                         required
-                    />
-                </label>
+                    /><button type="button" class="ghost-btn browse-btn" data-kind="session" data-target="saveForm:path">Browse…</button></div>
                 <div class="dialog-actions">
                     <button type="button" class="ghost-btn" data-close>Cancel</button>
                     <button type="submit" class="primary-btn">Save</button>
@@ -272,20 +270,30 @@
                 <p class="muted">
                     Loading a session replaces the current labels and boxes.
                 </p>
-                <label>
-                    Session file path
-                    <input
+                <label for="loadSessionPath">Session file path</label><div class="path-field"><input
+                        id="loadSessionPath"
                         type="text"
                         name="path"
                         placeholder="/path/to/session.json"
                         required
-                    />
-                </label>
+                    /><button type="button" class="ghost-btn browse-btn" data-kind="session" data-target="loadForm:path">Browse…</button></div>
                 <div class="dialog-actions">
                     <button type="button" class="ghost-btn" data-close>Cancel</button>
                     <button type="submit" class="primary-btn">Load</button>
                 </div>
             </form>
+        </dialog>
+
+        <dialog id="fileBrowserDialog">
+            <div class="file-browser">
+                <h3>Browse files on this machine</h3>
+                <p class="muted">Files are on the machine running the label tool.</p>
+                <div class="path-field"><button type="button" id="browserUp" class="ghost-btn">Up</button><input id="browserPath" type="text" aria-label="Directory path" /><button type="button" id="browserGo" class="ghost-btn">Go</button></div>
+                <input id="browserSearch" type="text" placeholder="Filter this folder…" aria-label="Filter files in this folder" />
+                <div id="browserEntries" class="browser-entries" role="list"></div>
+                <p id="browserMessage" class="muted" role="status"></p>
+                <div class="dialog-actions"><button type="button" id="browserUseFolder" class="ghost-btn">Use this folder</button><button type="button" id="browserCancel" class="ghost-btn">Cancel</button></div>
+            </div>
         </dialog>
 
         <dialog id="quitDialog">

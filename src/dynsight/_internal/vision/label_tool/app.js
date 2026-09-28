@@ -1115,6 +1115,90 @@ function hexToRgba(hex, alpha) {
 
 /* ---------- dialogs ---------- */
 
+let browserTarget = null;
+let browserKind = "session";
+let browserAppend = false;
+let browserDirectory = "";
+let browserParent = "";
+let browserItems = [];
+
+function renderBrowserItems() {
+    const list = $("browserEntries");
+    const filter = $("browserSearch").value.trim().toLowerCase();
+    list.replaceChildren();
+    const visible = browserItems.filter(item => item.name.toLowerCase().includes(filter));
+    for (const item of visible) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "browser-entry";
+        button.textContent = `${item.is_dir ? "📁" : "📄"} ${item.name}`;
+        button.title = item.path;
+        button.onclick = () => {
+            if (item.is_dir) {
+                loadBrowserDirectory(item.path);
+            } else {
+                if (browserAppend) {
+                    const prior = browserTarget.value.trim();
+                    if (!prior.split("\n").includes(item.path)) {
+                        browserTarget.value = prior ? `${prior}\n${item.path}` : item.path;
+                    }
+                } else {
+                    browserTarget.value = item.path;
+                }
+                browserTarget.dispatchEvent(new Event("input", {bubbles: true}));
+                $("fileBrowserDialog").close();
+            }
+        };
+        list.appendChild(button);
+    }
+    $("browserMessage").textContent = visible.length ? `${visible.length} item(s)` : "No matching files in this folder.";
+}
+
+async function loadBrowserDirectory(path) {
+    $("browserMessage").textContent = "Loading…";
+    try {
+        const query = new URLSearchParams({kind: browserKind});
+        if (path) query.set("path", path);
+        const data = await api(`/api/files?${query}`);
+        browserDirectory = data.path;
+        browserParent = data.parent;
+        browserItems = data.entries;
+        $("browserPath").value = data.path;
+        $("browserSearch").value = "";
+        renderBrowserItems();
+    } catch (err) {
+        $("browserMessage").textContent = err.message;
+    }
+}
+
+for (const button of document.querySelectorAll(".browse-btn")) {
+    button.onclick = () => {
+        const [formId, fieldName] = button.dataset.target.split(":");
+        browserTarget = $(formId).elements[fieldName];
+        browserKind = button.dataset.kind;
+        browserAppend = button.dataset.append === "true";
+        const existing = browserAppend ? browserTarget.value.trim().split("\n").at(-1) : browserTarget.value.trim();
+        const initial = existing && existing.includes("/")
+            ? (existing.slice(0, existing.lastIndexOf("/")) || "/")
+            : state.workspace;
+        $("browserUseFolder").hidden = button.dataset.target !== "saveForm:path";
+        $("fileBrowserDialog").showModal();
+        loadBrowserDirectory(initial);
+    };
+}
+$("browserUp").onclick = () => loadBrowserDirectory(browserParent);
+$("browserGo").onclick = () => loadBrowserDirectory($("browserPath").value.trim());
+$("browserPath").onkeydown = (event) => {
+    if (event.key === "Enter") { event.preventDefault(); $("browserGo").click(); }
+};
+$("browserSearch").oninput = renderBrowserItems;
+$("browserCancel").onclick = () => $("fileBrowserDialog").close();
+$("browserUseFolder").onclick = () => {
+    browserTarget.value = `${browserDirectory.replace(/\/$/, "")}/session.json`;
+    browserTarget.dispatchEvent(new Event("input", {bubbles: true}));
+    $("fileBrowserDialog").close();
+};
+
 for (const dialog of document.querySelectorAll("dialog")) {
     const closeBtn = dialog.querySelector("[data-close]");
     if (closeBtn) closeBtn.onclick = () => dialog.close();

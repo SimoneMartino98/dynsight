@@ -111,6 +111,14 @@ each checked frame **Reviewed**. Existing reviewed and test frames are not
 overwritten by another prediction import. Set confidence, NMS IoU, image
 size, maximum detections, and device to match the run being reviewed.
 
+The **Browse…** buttons beside session, checkpoint, and benchmark paths open
+a file browser on the machine running the label tool. Use **Up**, enter a
+directory path with **Go**, or filter names in the current folder. Select a
+file to fill its path. In **Compare models**, **Add…** appends checkpoints one
+at a time. For a new session, browse to a directory and choose **Use this
+folder** to fill a ``session.json`` path. The picker lists paths only; it does
+not load a session or run a model until the corresponding dialog is submitted.
+
 Mark a selection of reviewed real frames **Test set**, then choose **Freeze
 benchmark**. This writes a JSON snapshot under ``workspace/benchmarks`` with
 the reviewed boxes, source frame numbers where available, and image hashes.
