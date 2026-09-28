@@ -126,6 +126,8 @@ results to inspect an overlay: green boxes are frozen benchmark annotations
 and red boxes are model predictions. Press Escape or navigate to another
 frame to leave the overlay. Matching is same-class, greedy by prediction
 confidence at the chosen box IoU. The report records inference settings and
-the benchmark identifier. These metrics describe only the selected
+the benchmark identifier. Threshold curves include only cutoffs at or above
+the inference confidence floor, and the report lists frames reaching the
+maximum-detections cap. These metrics describe only the selected
 annotated frames; frame selection and annotation quality remain the main
 limits on interpretation.

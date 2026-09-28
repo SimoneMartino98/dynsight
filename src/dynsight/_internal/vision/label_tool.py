@@ -936,6 +936,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
             report = evaluate_predictions(
                 benchmark, predictions, float(body.get("match_iou", 0.5))
             )
+            confidence_floor = float(body.get("confidence", 0.01))
+            report["threshold_curve"] = [
+                point
+                for point in report["threshold_curve"]
+                if point["confidence"] >= confidence_floor
+            ]
+            report["capped_frames"] = [
+                name
+                for name, boxes in predictions.items()
+                if len(boxes) >= int(body.get("max_det", 500))
+            ]
             report["model"] = str(model_path)
             model_file = Path(str(model_path))
             report["model_sha256"] = (

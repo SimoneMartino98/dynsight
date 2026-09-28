@@ -174,6 +174,7 @@ def test_benchmark_and_comparison_api(
         )
         with pytest.raises(urllib.error.HTTPError):
             urllib.request.urlopen(request)  # noqa: S310
+        confidence_floor = 0.9
         result = post(
             "/api/compare",
             {
@@ -182,11 +183,17 @@ def test_benchmark_and_comparison_api(
                 "imgsz": 1024,
                 "max_det": 1000,
                 "device": "3",
+                "confidence": confidence_floor,
             },
         )
         assert result["reports"][0]["tp"] == 1
         assert result["reports"][0]["fp"] == 0
         assert result["reports"][0]["fn"] == 0
+        assert all(
+            point["confidence"] >= confidence_floor
+            for point in result["reports"][0]["threshold_curve"]
+        )
+        assert result["reports"][0]["capped_frames"] == []
         assert result["reports"][0]["per_frame"][0]["name"] == "frame.png"
         assert settings[0]["imgsz"] == 1024  # noqa: PLR2004
         assert settings[0]["max_det"] == 1000  # noqa: PLR2004
