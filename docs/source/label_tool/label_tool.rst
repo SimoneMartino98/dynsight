@@ -72,6 +72,13 @@ The Graphical User Interface is divided in three main panels:
   **Reviewed** after checking all boxes. A reviewed frame with no boxes is a
   valid negative example. **Test set** is available only for reviewed frames.
 
+  **Server images…** and **Server video…** browse files on the machine running
+  the label tool. Select one or more images and choose **Import selected**;
+  select a video, set the frame interval, and extract. These sources are read
+  directly from that machine, so a large remote video need not be uploaded
+  through the browser. The ``+`` buttons and drag-and-drop continue to upload
+  files from the computer running the web browser.
+
 * **The Canvas** (right): displays the current image and the bounding
   boxes.
 

@@ -291,3 +291,69 @@ def test_http_api_roundtrip(tmp_path: Path) -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_server_file_import(tmp_path: Path) -> None:
+    server = _LabelToolServer(0, _Workspace(tmp_path / "ws"))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def request(
+        path: str, data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        body = None if data is None else json.dumps(data).encode("utf-8")
+        req = urllib.request.Request(  # noqa: S310
+            base + path, data=body, method="POST" if data else "GET"
+        )
+        with urllib.request.urlopen(req) as response:  # noqa: S310
+            return json.loads(response.read())
+
+    try:
+        source_dir = tmp_path / "source"
+        source_dir.mkdir()
+        (source_dir / "remote.png").write_bytes(make_image_bytes())
+        (source_dir / "clip.mp4").write_bytes(b"not a video")
+        image_listing = request(
+            "/api/files?kind=image&path=" + urllib.parse.quote(str(source_dir))
+        )
+        assert [item["name"] for item in image_listing["entries"]] == [
+            "remote.png"
+        ]
+        video_listing = request(
+            "/api/files?kind=video&path=" + urllib.parse.quote(str(source_dir))
+        )
+        assert [item["name"] for item in video_listing["entries"]] == [
+            "clip.mp4"
+        ]
+        imported = request(
+            "/api/images/from-path", {"path": str(source_dir / "remote.png")}
+        )
+        assert imported == {"name": "remote.png", "width": 64, "height": 48}
+        assert (tmp_path / "ws" / "images" / "remote.png").is_file()
+
+        # Existing test frames remain protected from replacement.
+        (source_dir / "img.png").write_bytes(make_image_bytes())
+        server.session["frames"]["img.png"] = {
+            "reviewed": True,
+            "split": "test",
+        }
+        with pytest.raises(urllib.error.HTTPError):
+            request(
+                "/api/images/from-path",
+                {"path": str(source_dir / "img.png")},
+            )
+        server.session["frames"]["clip_000000.jpg"] = {
+            "source": "clip.avi",
+            "reviewed": True,
+            "split": "test",
+        }
+        with pytest.raises(urllib.error.HTTPError):
+            request(
+                "/api/video/from-path",
+                {"path": str(source_dir / "clip.mp4"), "stride": 2},
+            )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

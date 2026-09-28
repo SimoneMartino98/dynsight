@@ -55,6 +55,8 @@ _BROWSE_SUFFIXES = {
     "session": {".json"},
     "model": {".pt"},
     "benchmark": {".json"},
+    "image": _IMAGE_SUFFIXES,
+    "video": _VIDEO_SUFFIXES,
 }
 _MAX_BROWSE_ENTRIES = 500
 _UNSAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
@@ -119,6 +121,18 @@ def _browse_directory(
         msg = f"Cannot read directory: '{path}'"
         raise ValueError(msg) from e
     return {"path": str(path), "parent": str(path.parent), "entries": entries}
+
+
+def _source_file(raw_path: object, suffixes: set[str]) -> Path:
+    """Resolve a selected server-side file and check its expected type."""
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        msg = "A source file path is required."
+        raise ValueError(msg)
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_file() or path.suffix.lower() not in suffixes:
+        msg = f"Unsupported or missing source file: '{path}'"
+        raise ValueError(msg)
+    return path
 
 
 def _image_size(path: Path) -> tuple[int, int]:
@@ -217,6 +231,25 @@ class _Workspace:
         on_progress: _ProgressCallback | None = None,
     ) -> list[dict[str, Any]]:
         """Extract frames from an uploaded video into the workspace."""
+        safe = _safe_name(name)
+        if Path(safe).suffix.lower() not in _VIDEO_SUFFIXES:
+            msg = f"Unsupported video format: '{safe}'"
+            raise ValueError(msg)
+        tmp = self.root / f"_upload_{safe}"
+        tmp.write_bytes(data)
+        try:
+            return self.add_video_from_path(safe, tmp, stride, on_progress)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def add_video_from_path(
+        self,
+        name: str,
+        path: Path,
+        stride: int,
+        on_progress: _ProgressCallback | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract frames directly from a video already on the server."""
         import cv2  # heavy import, only needed here
 
         safe = _safe_name(name)
@@ -224,12 +257,10 @@ class _Workspace:
             msg = f"Unsupported video format: '{safe}'"
             raise ValueError(msg)
         stride = max(1, stride)
-        tmp = self.root / f"_upload_{safe}"
-        tmp.write_bytes(data)
         stem = Path(safe).stem
         frames: list[dict[str, Any]] = []
+        capture = cv2.VideoCapture(str(path))
         try:
-            capture = cv2.VideoCapture(str(tmp))
             if not capture.isOpened():
                 msg = f"Could not open video '{safe}'."
                 raise ValueError(msg)
@@ -256,9 +287,8 @@ class _Workspace:
                 index += 1
                 if on_progress is not None:
                     on_progress(index, total)
-            capture.release()
         finally:
-            tmp.unlink(missing_ok=True)
+            capture.release()
         if not frames:
             msg = f"No frames could be extracted from '{safe}'."
             raise ValueError(msg)
@@ -692,7 +722,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "/api/session": self._handle_save_session,
             "/api/session/load": self._handle_load_session,
             "/api/images": self._handle_upload_image,
+            "/api/images/from-path": self._handle_import_image,
             "/api/video": self._handle_upload_video,
+            "/api/video/from-path": self._handle_import_video,
             "/api/export": self._handle_export,
             "/api/predict": self._handle_predict,
             "/api/benchmark": self._handle_benchmark,
@@ -787,6 +819,10 @@ class _RequestHandler(BaseHTTPRequestHandler):
     def _handle_upload_image(self) -> dict[str, Any]:
         query = self._query()
         name = _safe_name(query["name"])
+        self._check_image_replacement(name)
+        return self._workspace.add_image(name, self._read_body())
+
+    def _check_image_replacement(self, name: str) -> None:
         if any(
             frame["name"] == name for frame in _frozen_frames(self._workspace)
         ):
@@ -795,23 +831,17 @@ class _RequestHandler(BaseHTTPRequestHandler):
         if self.server.session["frames"].get(name, {}).get("split") == "test":
             msg = "Remove this image from the test set before replacing it."
             raise ValueError(msg)
-        return self._workspace.add_image(name, self._read_body())
+
+    def _handle_import_image(self) -> dict[str, Any]:
+        path = _source_file(self._json_body().get("path"), _IMAGE_SUFFIXES)
+        name = _safe_name(path.name)
+        self._check_image_replacement(name)
+        return self._workspace.add_image(name, path.read_bytes())
 
     def _handle_upload_video(self) -> dict[str, Any]:
         query = self._query()
         name = _safe_name(query["name"])
-        if any(
-            frame.get("source") == name
-            for frame in _frozen_frames(self._workspace)
-        ):
-            msg = "This video has frames in a frozen benchmark."
-            raise ValueError(msg)
-        if any(
-            meta.get("source") == name and meta.get("split") == "test"
-            for meta in self.server.session["frames"].values()
-        ):
-            msg = "Remove test frames from this video before replacing it."
-            raise ValueError(msg)
+        self._check_video_replacement(name)
         data = self._read_body()
         on_progress = self.server.start_progress("Extracting frames")
         try:
@@ -819,6 +849,40 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 name,
                 data,
                 stride=int(query.get("stride", "1")),
+                on_progress=on_progress,
+            )
+        finally:
+            self.server.end_progress()
+        return {"frames": frames}
+
+    def _check_video_replacement(self, name: str) -> None:
+        frame_prefix = f"{Path(name).stem}_"
+        if any(
+            frame.get("source") == name
+            or frame["name"].startswith(frame_prefix)
+            for frame in _frozen_frames(self._workspace)
+        ):
+            msg = "This video has frames in a frozen benchmark."
+            raise ValueError(msg)
+        if any(
+            (meta.get("source") == name or frame_name.startswith(frame_prefix))
+            and meta.get("split") == "test"
+            for frame_name, meta in self.server.session["frames"].items()
+        ):
+            msg = "Remove test frames from this video before replacing it."
+            raise ValueError(msg)
+
+    def _handle_import_video(self) -> dict[str, Any]:
+        body = self._json_body()
+        path = _source_file(body.get("path"), _VIDEO_SUFFIXES)
+        name = _safe_name(path.name)
+        self._check_video_replacement(name)
+        on_progress = self.server.start_progress("Extracting frames")
+        try:
+            frames = self._workspace.add_video_from_path(
+                name,
+                path,
+                stride=int(body.get("stride", 1)),
                 on_progress=on_progress,
             )
         finally:

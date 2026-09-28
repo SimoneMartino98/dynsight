@@ -486,24 +486,7 @@ async function uploadImages(files) {
                     `/api/images?name=${encodeURIComponent(file.name)}`,
                     { method: "POST", body: file },
                 );
-                const existing = state.images.findIndex(
-                    (i) => i.name === info.name,
-                );
-                if (existing >= 0) {
-                    if (state.frames[info.name]?.split === "test") {
-                        throw new Error("Remove this image from the test set before replacing it.");
-                    }
-                    state.images[existing] = info;
-                    imageCache.delete(info.name);
-                    imageVersion.set(
-                        info.name,
-                        (imageVersion.get(info.name) || 0) + 1,
-                    );
-                } else {
-                    state.images.push(info);
-                }
-                state.frames[info.name] = {source: file.name, reviewed: false, split: "train"};
-                markChanged();
+                addImportedImage(info, file.name);
                 done += 1;
             } catch (err) {
                 toast(`"${file.name}": ${err.message}`, "error");
@@ -522,11 +505,55 @@ async function uploadImages(files) {
     }
 }
 
+function addImportedImage(info, source) {
+    const existing = state.images.findIndex((image) => image.name === info.name);
+    if (existing >= 0) {
+        state.images[existing] = info;
+        imageCache.delete(info.name);
+        imageVersion.set(info.name, (imageVersion.get(info.name) || 0) + 1);
+    } else {
+        state.images.push(info);
+    }
+    state.frames[info.name] = {source, reviewed: false, split: "train"};
+    markChanged();
+}
+
+async function importServerImages(paths) {
+    if (!paths.length) return;
+    let done = 0;
+    showProgress(`Importing server images (0/${paths.length})…`);
+    try {
+        for (const [index, path] of paths.entries()) {
+            try {
+                const info = await api("/api/images/from-path", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({path}),
+                });
+                addImportedImage(info, path);
+                done += 1;
+            } catch (err) {
+                toast(`${path}: ${err.message}`, "error");
+            }
+            $("progressLabel").textContent =
+                `Importing server images (${index + 1}/${paths.length})…`;
+            setProgress(index + 1, paths.length);
+        }
+    } finally {
+        hideProgress();
+    }
+    if (done) {
+        toast(`Added ${done} server image(s).`, "ok");
+        if (state.current < 0) selectImage(0);
+        renderImages();
+    }
+}
+
 let pendingVideo = null;
 
 function askVideoStride(file) {
     pendingVideo = file;
-    $("videoFileName").textContent = file.name;
+    $("videoFileName").textContent = file.path || file.name;
     $("videoDialog").showModal();
 }
 
@@ -574,15 +601,30 @@ $("videoForm").onsubmit = async (e) => {
     pendingVideo = null;
     $("videoDialog").close();
     if (!file) return;
-    showProgress("Uploading video…");
+    showProgress(file.path ? "Extracting server video…" : "Uploading video…");
     try {
-        const result = await uploadVideo(
-            `/api/video?name=${encodeURIComponent(file.name)}` +
-                `&stride=${encodeURIComponent(stride)}`,
-            file,
-        );
+        let result;
+        if (file.path) {
+            startProgressPoll("Extracting frames");
+            result = await api("/api/video/from-path", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({path: file.path, stride: Number(stride)}),
+            });
+        } else {
+            result = await uploadVideo(
+                `/api/video?name=${encodeURIComponent(file.name)}` +
+                    `&stride=${encodeURIComponent(stride)}`,
+                file,
+            );
+        }
         for (const info of result.frames) {
-            if (!state.images.some((i) => i.name === info.name)) {
+            const existing = state.images.findIndex((image) => image.name === info.name);
+            if (existing >= 0) {
+                state.images[existing] = info;
+                imageCache.delete(info.name);
+                imageVersion.set(info.name, (imageVersion.get(info.name) || 0) + 1);
+            } else {
                 state.images.push(info);
             }
             state.frames[info.name] = {
@@ -604,6 +646,8 @@ $("videoForm").onsubmit = async (e) => {
 
 $("addImagesBtn").onclick = () => $("imageFiles").click();
 $("addVideoBtn").onclick = () => $("videoFile").click();
+$("browseImagesBtn").onclick = () => openBrowser("image", "image");
+$("browseVideoBtn").onclick = () => openBrowser("video", "video");
 $("imageFiles").onchange = (e) => {
     uploadImages(e.target.files);
     e.target.value = "";
@@ -1121,6 +1165,8 @@ let browserAppend = false;
 let browserDirectory = "";
 let browserParent = "";
 let browserItems = [];
+let browserAction = "path";
+let browserSelected = new Set();
 
 function renderBrowserItems() {
     const list = $("browserEntries");
@@ -1131,11 +1177,24 @@ function renderBrowserItems() {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "browser-entry";
-        button.textContent = `${item.is_dir ? "📁" : "📄"} ${item.name}`;
+        if (browserAction === "image" && browserSelected.has(item.path)) {
+            button.classList.add("selected");
+        }
+        const marker = browserAction === "image" && !item.is_dir
+            ? (browserSelected.has(item.path) ? "☑" : "☐")
+            : (item.is_dir ? "📁" : "📄");
+        button.textContent = `${marker} ${item.name}`;
         button.title = item.path;
         button.onclick = () => {
             if (item.is_dir) {
                 loadBrowserDirectory(item.path);
+            } else if (browserAction === "image") {
+                if (browserSelected.has(item.path)) browserSelected.delete(item.path);
+                else browserSelected.add(item.path);
+                renderBrowserItems();
+            } else if (browserAction === "video") {
+                $("fileBrowserDialog").close();
+                askVideoStride({path: item.path, name: item.name});
             } else {
                 if (browserAppend) {
                     const prior = browserTarget.value.trim();
@@ -1151,6 +1210,7 @@ function renderBrowserItems() {
         };
         list.appendChild(button);
     }
+    $("browserImportSelected").disabled = browserSelected.size === 0;
     $("browserMessage").textContent = visible.length ? `${visible.length} item(s)` : "No matching files in this folder.";
 }
 
@@ -1163,6 +1223,7 @@ async function loadBrowserDirectory(path) {
         browserDirectory = data.path;
         browserParent = data.parent;
         browserItems = data.entries;
+        browserSelected = new Set();
         $("browserPath").value = data.path;
         $("browserSearch").value = "";
         renderBrowserItems();
@@ -1171,19 +1232,32 @@ async function loadBrowserDirectory(path) {
     }
 }
 
+function openBrowser(kind, action = "path", target = null, append = false) {
+    browserTarget = target;
+    browserKind = kind;
+    browserAction = action;
+    browserAppend = append;
+    const existing = target
+        ? (append ? target.value.trim().split("\n").at(-1) : target.value.trim())
+        : "";
+    const initial = existing && existing.includes("/")
+        ? (existing.slice(0, existing.lastIndexOf("/")) || "/")
+        : state.workspace;
+    $("browserUseFolder").hidden = target?.id !== "saveSessionPath";
+    $("browserImportSelected").hidden = action !== "image";
+    $("fileBrowserDialog").showModal();
+    loadBrowserDirectory(initial);
+}
+
 for (const button of document.querySelectorAll(".browse-btn")) {
     button.onclick = () => {
         const [formId, fieldName] = button.dataset.target.split(":");
-        browserTarget = $(formId).elements[fieldName];
-        browserKind = button.dataset.kind;
-        browserAppend = button.dataset.append === "true";
-        const existing = browserAppend ? browserTarget.value.trim().split("\n").at(-1) : browserTarget.value.trim();
-        const initial = existing && existing.includes("/")
-            ? (existing.slice(0, existing.lastIndexOf("/")) || "/")
-            : state.workspace;
-        $("browserUseFolder").hidden = button.dataset.target !== "saveForm:path";
-        $("fileBrowserDialog").showModal();
-        loadBrowserDirectory(initial);
+        openBrowser(
+            button.dataset.kind,
+            "path",
+            $(formId).elements[fieldName],
+            button.dataset.append === "true",
+        );
     };
 }
 $("browserUp").onclick = () => loadBrowserDirectory(browserParent);
@@ -1193,6 +1267,12 @@ $("browserPath").onkeydown = (event) => {
 };
 $("browserSearch").oninput = renderBrowserItems;
 $("browserCancel").onclick = () => $("fileBrowserDialog").close();
+$("browserImportSelected").onclick = () => {
+    const paths = [...browserSelected];
+    if (!paths.length) return;
+    $("fileBrowserDialog").close();
+    importServerImages(paths);
+};
 $("browserUseFolder").onclick = () => {
     browserTarget.value = `${browserDirectory.replace(/\/$/, "")}/session.json`;
     browserTarget.dispatchEvent(new Event("input", {bubbles: true}));

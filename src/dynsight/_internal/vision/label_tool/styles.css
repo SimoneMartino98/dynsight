@@ -259,6 +259,7 @@ textarea:focus {
     text-overflow: ellipsis;
 }
 .browser-entry:hover { background: var(--bg-raised); }
+.browser-entry.selected { color: var(--accent); background: var(--bg-raised); }
 
 .btn-row {
     display: flex;

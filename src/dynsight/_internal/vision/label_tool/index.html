@@ -74,6 +74,10 @@
                         <button id="addImagesBtn" class="ghost-btn">+ Images</button>
                         <button id="addVideoBtn" class="ghost-btn">+ Video</button>
                     </div>
+                    <div class="btn-row">
+                        <button id="browseImagesBtn" class="ghost-btn">Server images…</button>
+                        <button id="browseVideoBtn" class="ghost-btn">Server video…</button>
+                    </div>
                     <select id="imageFilter" aria-label="Filter frames">
                         <option value="all">All frames</option>
                         <option value="unreviewed">Unreviewed</option>
@@ -292,7 +296,7 @@
                 <input id="browserSearch" type="text" placeholder="Filter this folder…" aria-label="Filter files in this folder" />
                 <div id="browserEntries" class="browser-entries" role="list"></div>
                 <p id="browserMessage" class="muted" role="status"></p>
-                <div class="dialog-actions"><button type="button" id="browserUseFolder" class="ghost-btn">Use this folder</button><button type="button" id="browserCancel" class="ghost-btn">Cancel</button></div>
+                <div class="dialog-actions"><button type="button" id="browserImportSelected" class="primary-btn" hidden>Import selected</button><button type="button" id="browserUseFolder" class="ghost-btn">Use this folder</button><button type="button" id="browserCancel" class="ghost-btn">Cancel</button></div>
             </div>
         </dialog>
 
