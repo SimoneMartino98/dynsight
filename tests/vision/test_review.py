@@ -109,6 +109,32 @@ def test_source_frames_stay_in_one_split(tmp_path: Path) -> None:
     assert result["num_val"] == 2  # noqa: PLR2004
 
 
+def test_test_source_is_excluded_from_training(tmp_path: Path) -> None:
+    from PIL import Image
+
+    image = BytesIO()
+    Image.new("RGB", (24, 24)).save(image, format="PNG")
+    workspace = _Workspace(tmp_path)
+    for name in ("test.png", "same_source.png", "other.png"):
+        workspace.add_image(name, image.getvalue())
+    session = {
+        "labels": [{"name": "cell"}],
+        "annotations": {},
+        "frames": {
+            "test.png": {"reviewed": True, "split": "test", "source": "a"},
+            "same_source.png": {
+                "reviewed": True,
+                "split": "train",
+                "source": "a",
+            },
+            "other.png": {"reviewed": True, "split": "train", "source": "b"},
+        },
+    }
+    result = export_dataset(workspace, session, "safe")
+    assert result["num_train"] == 1
+    assert not list((tmp_path / "safe").rglob("same_source.png"))
+
+
 def test_benchmark_and_comparison_api(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -145,6 +171,7 @@ def test_benchmark_and_comparison_api(
     image = BytesIO()
     Image.new("RGB", (24, 24)).save(image, format="PNG")
     workspace.add_image("frame.png", image.getvalue())
+    (tmp_path / "first.pt").write_bytes(b"fake checkpoint")
     server = _LabelToolServer(0, workspace)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -179,7 +206,7 @@ def test_benchmark_and_comparison_api(
             "/api/compare",
             {
                 "benchmark": benchmark["path"],
-                "models": ["first.pt"],
+                "models": [str(tmp_path / "first.pt")],
                 "imgsz": 1024,
                 "max_det": 1000,
                 "device": "3",
@@ -198,6 +225,16 @@ def test_benchmark_and_comparison_api(
         assert settings[0]["imgsz"] == 1024  # noqa: PLR2004
         assert settings[0]["max_det"] == 1000  # noqa: PLR2004
         assert settings[0]["device"] == "3"
+        report_dir = workspace.root / "comparisons" / result["id"]
+        assert (report_dir / "index.html").is_file()
+        assert (report_dir / "frame_00_model_00.jpg").is_file()
+        assert (report_dir / "f1_curve.svg").is_file()
+        (tmp_path / "first.pt").write_bytes(b"changed checkpoint")
+        with urllib.request.urlopen(  # noqa: S310
+            base + f"/api/comparison?id={result['id']}&status=1"
+        ) as response:
+            status = json.loads(response.read())
+        assert "Checkpoint changed" in status["input_warnings"][0]
     finally:
         server.shutdown()
         server.server_close()

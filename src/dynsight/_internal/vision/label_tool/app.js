@@ -21,6 +21,9 @@ const state = {
     images: [], // [{name, width, height}]
     annotations: {}, // name -> [{label, x, y, w, h}]
     frames: {}, // name -> {source, frame_index, reviewed, split}
+    regions: {}, // name -> reviewed rectangles within a frame
+    review_queue: {}, // region suggestions and decisions
+    comparisons: [], // reports linked to this session
     labels: [], // [{name, color}]
     activeLabel: null,
     current: -1,
@@ -38,6 +41,7 @@ let dirty = false; // changes not yet saved to a session file
 let sessionPath = null; // last file the session was saved to / loaded from
 let quitAfterSave = false;
 let comparisonOverlay = null;
+let selectedRegionId = null;
 
 const imageCache = new Map(); // name -> HTMLImageElement
 const imageVersion = new Map(); // name -> int, bumped on re-upload
@@ -73,7 +77,7 @@ for (const [id, field] of [["uncertainCheck", "uncertain"], ["borderCheck", "bor
         const box = currentBoxes()[state.selection];
         if (!box) return;
         box[field] = event.target.checked;
-        markChanged();
+        annotationsChanged();
     };
 }
 
@@ -121,6 +125,10 @@ function setSaveStatus() {
         el.textContent = "";
         el.className = "";
     }
+    const reviewed = Object.values(state.frames).filter((frame) => frame.reviewed).length;
+    const test = Object.values(state.frames).filter((frame) => frame.split === "test").length;
+    const regions = Object.values(state.regions).flat().filter((region) => region.reviewed).length;
+    $("sessionSummary").textContent = `${state.labels.length} classes · ${reviewed} reviewed · ${test} test · ${regions} verified tiles`;
 }
 
 // The session is never written to disk automatically: edits are only
@@ -132,6 +140,18 @@ function markChanged() {
     setSaveStatus();
     clearTimeout(syncTimer);
     syncTimer = setTimeout(syncSession, 300);
+}
+
+function annotationsChanged() {
+    const image = currentImage();
+    if (image) {
+        for (const region of state.regions[image.name] || []) {
+            region.reviewed = false;
+        }
+    }
+    markChanged();
+    renderRegions();
+    renderImages();
 }
 
 async function syncSession() {
@@ -152,6 +172,9 @@ function sessionBody() {
         labels: state.labels,
         annotations: state.annotations,
         frames: state.frames,
+        regions: state.regions,
+        review_queue: state.review_queue,
+        comparisons: state.comparisons,
     });
 }
 
@@ -401,6 +424,11 @@ $("reviewedCheck").onchange = (e) => {
     const image = currentImage();
     if (!image) return;
     const meta = state.frames[image.name] || {};
+    if (e.target.checked && (state.annotations[image.name] || []).length > 20 &&
+        !confirm("Have you checked every box in this frame? Use verified tiles for partial review.")) {
+        e.target.checked = false;
+        return;
+    }
     meta.reviewed = e.target.checked;
     if (!meta.reviewed) meta.split = "train";
     state.frames[image.name] = meta;
@@ -432,6 +460,8 @@ async function deleteImage(name) {
     state.images = state.images.filter((i) => i.name !== name);
     delete state.annotations[name];
     delete state.frames[name];
+    for (const region of state.regions[name] || []) delete state.review_queue[region.id];
+    delete state.regions[name];
     imageCache.delete(name);
     if (state.current >= state.images.length) {
         state.current = state.images.length - 1;
@@ -460,6 +490,7 @@ function selectImage(idx, force = false) {
     }
     fitView();
     renderImages();
+    renderRegions();
 }
 
 $("prevBtn").onclick = () => {
@@ -943,7 +974,7 @@ canvas.addEventListener("pointerup", (e) => {
             const boxes = currentBoxes();
             boxes.push({ label: state.activeLabel, ...drag.rect });
             state.selection = boxes.length - 1;
-            markChanged();
+            annotationsChanged();
             renderLabels();
             renderImages();
         }
@@ -951,7 +982,7 @@ canvas.addEventListener("pointerup", (e) => {
         (drag.mode === "move" || drag.mode === "resize") &&
         drag.moved
     ) {
-        markChanged();
+        annotationsChanged();
     }
     drag = null;
     hover = info ? hitTest(e.offsetX, e.offsetY) : { box: -1, handle: -1 };
@@ -979,7 +1010,7 @@ function deleteBox(index) {
     boxes.splice(index, 1);
     if (state.selection === index) state.selection = -1;
     else if (state.selection > index) state.selection -= 1;
-    markChanged();
+    annotationsChanged();
     renderLabels();
     renderImages();
     render();
@@ -1048,6 +1079,11 @@ function render() {
         $(id).disabled = !selected;
         $(id).checked = Boolean(selected && selected[field]);
     }
+    $("boxReason").textContent = selected?.uncertainty_reasons?.length
+        ? `Check: ${selected.uncertainty_reasons.join(", ")}`
+        : selected?.provenance === "propagated_draft"
+            ? "Propagated draft: verify before using."
+            : "";
     if (!info) return;
 
     const img = imageCache.get(info.name);
@@ -1076,6 +1112,20 @@ function render() {
         boxes.forEach((box, idx) => {
             drawBox(box, idx === state.selection, idx === hover.box);
         });
+    }
+
+    const region = (state.regions[info.name] || []).find(
+        (item) => item.id === selectedRegionId,
+    );
+    if (region) {
+        ctx.save();
+        ctx.strokeStyle = region.reviewed ? "#22c55e" : "#facc15";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(
+            ox + region.x * scale, oy + region.y * scale,
+            region.w * scale, region.h * scale,
+        );
+        ctx.restore();
     }
 
     if (drag && drag.mode === "draw" && drag.rect) {
@@ -1287,6 +1337,36 @@ for (const dialog of document.querySelectorAll("dialog")) {
 $("exportBtn").onclick = () => $("exportDialog").showModal();
 $("predictBtn").onclick = () => $("predictDialog").showModal();
 $("compareBtn").onclick = () => $("compareDialog").showModal();
+async function openComparison(id) {
+    try {
+        const report = await api(`/api/comparison?id=${id}&status=1`);
+        for (const warning of report.input_warnings || []) {
+            toast(warning, "error", "This is a saved historical comparison.", 12000);
+        }
+    } catch (error) {
+        toast(`Cannot open comparison: ${error.message}`, "error");
+        return;
+    }
+    $("comparisonFrame").src = `/reports/${id}`;
+    $("comparisonHtmlLink").href = `/reports/${id}`;
+    $("comparisonJsonLink").href = `/api/comparison?id=${id}`;
+    $("comparisonViewDialog").showModal();
+}
+
+function renderComparisons() {
+    const list = $("comparisonList");
+    list.innerHTML = "";
+    for (const item of state.comparisons) {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ghost-btn";
+        button.textContent = `${item.id} · ${item.benchmark_id}`;
+        button.onclick = () => openComparison(item.id);
+        li.append(button);
+        list.append(li);
+    }
+}
 $("benchmarkBtn").onclick = async () => {
     await syncSession();
     try {
@@ -1305,10 +1385,16 @@ $("predictForm").onsubmit = async (e) => {
         const result = await api("/api/predict", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({model: form.model.value.trim(), confidence: Number(form.confidence.value), nms_iou: Number(form.nms_iou.value), imgsz: Number(form.imgsz.value), max_det: Number(form.max_det.value), device: form.device.value.trim() || null})});
         Object.assign(state.annotations, result.predictions);
         state.frames = result.frames;
+        const addedClasses = !state.labels.length && result.labels.length;
+        state.labels = result.labels;
+        for (const name of Object.keys(result.predictions)) {
+            for (const region of state.regions[name] || []) region.reviewed = false;
+        }
         markChanged();
         renderLabels(); renderImages(); render();
         $("predictDialog").close();
         toast(`Imported draft boxes for ${Object.keys(result.predictions).length} frame(s).`, "ok");
+        if (addedClasses) toast("Model classes were added to this session. Check the class list before reviewing.", "ok");
     } catch (err) { toast(`Prediction import failed: ${err.message}`, "error"); }
     finally { hideProgress(); }
 };
@@ -1317,8 +1403,12 @@ $("compareForm").onsubmit = async (e) => {
     e.preventDefault();
     const form = e.target.elements;
     showProgress("Comparing models…");
+    startProgressPoll("Comparing models");
     try {
         const result = await api("/api/compare", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({benchmark: form.benchmark.value.trim(), models: form.models.value.split("\n").map(x => x.trim()).filter(Boolean), match_iou: Number(form.match_iou.value), confidence: Number(form.confidence.value), nms_iou: Number(form.nms_iou.value), imgsz: Number(form.imgsz.value), max_det: Number(form.max_det.value), device: form.device.value.trim() || null})});
+        state.comparisons = result.comparisons;
+        markChanged();
+        renderComparisons();
         $("compareResults").textContent = result.reports.map(r => `${r.model}: P ${r.precision.toFixed(3)}, R ${r.recall.toFixed(3)}, F1 ${r.f1.toFixed(3)}, TP ${r.tp}, FP ${r.fp}, FN ${r.fn}`).join("\n") + `\nFull frame-level report: ${result.path}`;
         const list = $("comparisonFrames");
         list.innerHTML = "";
@@ -1344,6 +1434,8 @@ $("compareForm").onsubmit = async (e) => {
                 list.appendChild(button);
             }
         }
+        $("compareDialog").close();
+        openComparison(result.id);
     } catch (err) { toast(`Comparison failed: ${err.message}`, "error"); }
     finally { hideProgress(); }
 };
@@ -1407,6 +1499,7 @@ $("synthForm").onsubmit = async (e) => {
                 scale_min: Number(form.smin.value),
                 scale_max: Number(form.smax.value),
                 background: form.background.value,
+                background_mode: form.background_mode.value,
                 output_dir: form.output.value.trim() || null,
             }),
         });
@@ -1452,6 +1545,9 @@ $("saveForm").onsubmit = async (e) => {
                 labels: state.labels,
                 annotations: state.annotations,
                 frames: state.frames,
+                regions: state.regions,
+                review_queue: state.review_queue,
+                comparisons: state.comparisons,
             }),
         });
         sessionPath = result.path;
@@ -1493,6 +1589,9 @@ $("loadForm").onsubmit = async (e) => {
         state.labels = session.labels || [];
         state.annotations = session.annotations || {};
         state.frames = session.frames || {};
+        state.regions = session.regions || {};
+        state.review_queue = session.review_queue || {};
+        state.comparisons = session.comparisons || [];
         state.images = session.images || [];
         state.activeLabel = null;
         state.selection = -1;
@@ -1502,6 +1601,7 @@ $("loadForm").onsubmit = async (e) => {
         $("loadDialog").close();
         renderLabels();
         renderImages();
+        renderComparisons();
         render();
         toast("Session loaded.", "ok", path);
     } catch (err) {
@@ -1550,12 +1650,16 @@ async function init() {
         state.labels = data.labels;
         state.annotations = data.annotations;
         state.frames = data.frames || {};
+        state.regions = data.regions || {};
+        state.review_queue = data.review_queue || {};
+        state.comparisons = data.comparisons || [];
         sessionPath = data.session_path;
         dirty = Boolean(data.dirty);
         $("workspacePath").textContent = data.workspace;
         setSaveStatus();
         renderLabels();
         renderImages();
+        renderComparisons();
         if (state.images.length) selectImage(0, true);
     } catch (err) {
         toast(`Could not load session: ${err.message}`, "error");
@@ -1565,3 +1669,256 @@ async function init() {
 window.addEventListener("resize", resizeCanvas);
 new ResizeObserver(resizeCanvas).observe(stage);
 init();
+
+/* ---------- region review and work queue ---------- */
+
+function regionIntersects(box, region) {
+    return box.x < region.x + region.w && box.x + box.w > region.x &&
+        box.y < region.y + region.h && box.y + box.h > region.y;
+}
+
+function selectedRegion() {
+    const image = currentImage();
+    return (state.regions[image?.name] || []).find(
+        (item) => item.id === selectedRegionId,
+    );
+}
+
+function fitRegion() {
+    const region = selectedRegion();
+    if (!region) return;
+    const rect = stage.getBoundingClientRect();
+    const scale = Math.min(
+        (rect.width - 40) / region.w,
+        (rect.height - 40) / region.h,
+        MAX_SCALE,
+    );
+    state.view.scale = Math.max(MIN_SCALE, scale);
+    state.view.x = (rect.width - region.w * scale) / 2 - region.x * scale;
+    state.view.y = (rect.height - region.h * scale) / 2 - region.y * scale;
+    state.fitted = false;
+    updateZoomText();
+    render();
+}
+
+function selectRegion(name, id) {
+    const index = state.images.findIndex((image) => image.name === name);
+    if (index < 0) return;
+    selectImage(index, true);
+    selectedRegionId = id;
+    renderRegions();
+    fitRegion();
+}
+
+function renderRegions() {
+    const list = $("regionList");
+    list.innerHTML = "";
+    const image = currentImage();
+    for (const region of state.regions[image?.name] || []) {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ghost-btn";
+        button.textContent = `${region.reviewed ? "✓" : "○"} ${region.x},${region.y} · ${region.w}×${region.h}`;
+        button.onclick = () => selectRegion(image.name, region.id);
+        li.append(button);
+        list.append(li);
+    }
+    $("verifyRegionBtn").disabled = !selectedRegion();
+    $("unverifyRegionBtn").disabled = !selectedRegion();
+    $("fitRegionBtn").disabled = !selectedRegion();
+}
+
+$("makeRegionsBtn").onclick = () => {
+    const image = currentImage();
+    if (!image) return;
+    if (state.regions[image.name]?.length &&
+        !confirm("Replace this frame's region grid and verification decisions?")) return;
+    const size = 256;
+    state.regions[image.name] = [];
+    for (let y = 0; y < image.height; y += size) {
+        for (let x = 0; x < image.width; x += size) {
+            const w = Math.min(size, image.width - x);
+            const h = Math.min(size, image.height - y);
+            state.regions[image.name].push({
+                id: `${image.name}:${x}:${y}:${w}:${h}`,
+                x, y, w, h, reviewed: false,
+            });
+        }
+    }
+    selectedRegionId = state.regions[image.name][0]?.id || null;
+    markChanged();
+    renderRegions();
+    fitRegion();
+};
+$("fitRegionBtn").onclick = fitRegion;
+$("verifyRegionBtn").onclick = () => {
+    const region = selectedRegion();
+    if (!region) return;
+    if (currentImage() && state.frames[currentImage().name]?.split === "test") {
+        toast("Test frames cannot enter region training export.", "error");
+        return;
+    }
+    region.reviewed = true;
+    region.verified_at = new Date().toISOString();
+    markChanged();
+    renderRegions();
+    renderImages();
+    render();
+};
+$("unverifyRegionBtn").onclick = () => {
+    const region = selectedRegion();
+    if (!region) return;
+    region.reviewed = false;
+    markChanged();
+    renderRegions();
+    renderImages();
+    render();
+};
+$("exportRegionsBtn").onclick = async () => {
+    const count = Object.values(state.regions).flat().filter((r) => r.reviewed).length;
+    if (!count) return toast("Verify at least one tile first.", "error");
+    const name = prompt("Dataset name for verified regions", "verified_regions");
+    if (!name) return;
+    await syncSession();
+    try {
+        const result = await api("/api/regions/export", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({name}),
+        });
+        toast(`Exported ${result.regions} verified regions.`, "ok", result.path, 12000);
+    } catch (err) {
+        toast(`Region export failed: ${err.message}`, "error");
+    }
+};
+
+async function rankQueue() {
+    let comparison = null;
+    const latest = state.comparisons.at(-1);
+    if (latest) {
+        try { comparison = await api(`/api/comparison?id=${latest.id}`); }
+        catch { /* comparison file may have moved */ }
+    }
+    const candidates = [];
+    for (const [name, regions] of Object.entries(state.regions)) {
+        if (state.frames[name]?.split === "test") continue;
+        const boxes = state.annotations[name] || [];
+        const compared = comparison?.reports?.map((report) =>
+            report.per_frame.find((row) => row.name === name),
+        ).filter(Boolean) || [];
+        for (const region of regions) {
+            if (region.reviewed || state.review_queue[region.id]) continue;
+            const nearby = boxes.filter((box) => regionIntersects(box, region));
+            const reasons = [];
+            if (nearby.some((box) => (box.confidence ?? 1) < 0.5)) reasons.push("low confidence");
+            if (nearby.some((box) => box.uncertain)) reasons.push("uncertain box");
+            for (const reason of new Set(nearby.flatMap((box) => box.uncertainty_reasons || []))) reasons.push(reason);
+            if (nearby.some((box) => box.w / Math.max(1, box.h) > 3 ||
+                box.h / Math.max(1, box.w) > 3)) reasons.push("unusual aspect ratio");
+            if (nearby.some((box) => box.x < region.x || box.y < region.y ||
+                box.x + box.w > region.x + region.w || box.y + box.h > region.y + region.h)) reasons.push("tile border");
+            if (compared.some((row) => row.prediction_boxes.some((box, idx) =>
+                row.false_positives.includes(idx) && regionIntersects(box, region)))) reasons.push("false positives");
+            if (compared.some((row) => row.truth_boxes.some((box, idx) =>
+                row.missed.includes(idx) && regionIntersects(box, region)))) reasons.push("missed cells");
+            if (nearby.length === 0) reasons.push("ordinary empty sample");
+            const frame = state.frames[name] || {};
+            const previous = Object.entries(state.frames).filter(([, meta]) =>
+                meta.source === frame.source &&
+                typeof meta.frame_index === "number" &&
+                meta.frame_index < frame.frame_index,
+            ).sort((a, b) => b[1].frame_index - a[1].frame_index)[0];
+            if (previous && Math.abs(boxes.length -
+                (state.annotations[previous[0]] || []).length) > 30) reasons.push("temporal count change");
+            if (!reasons.length) reasons.push("ordinary sample");
+            candidates.push({name, region, reasons, estimated: nearby.length,
+                score: reasons.filter((reason) => !reason.startsWith("ordinary")).length * 10 + Math.min(nearby.length, 20)});
+        }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    const seen = new Map();
+    const diverse = candidates.filter((item) => {
+        const meta = state.frames[item.name] || {};
+        const source = meta.source || item.name;
+        const frame = meta.frame_index;
+        if (typeof frame !== "number") return true;
+        const chosen = seen.get(source) || [];
+        const same = chosen.filter((value) => value === frame).length;
+        const adjacent = chosen.some((value) => value !== frame && Math.abs(value - frame) < 5);
+        if (same >= 3 || adjacent) return false;
+        seen.set(source, [...chosen, frame]);
+        return true;
+    });
+    const hard = diverse.filter((item) => item.score >= 10).slice(0, 24);
+    const ordinary = diverse.filter((item) => item.score < 10).slice(0, 6);
+    renderQueue([...hard, ...ordinary]);
+}
+
+function renderQueue(items) {
+    const list = $("reviewQueueList");
+    list.innerHTML = "";
+    for (const item of items) {
+        const li = document.createElement("li");
+        const view = document.createElement("button");
+        view.type = "button";
+        view.className = "ghost-btn";
+        view.textContent = `${item.name} · ${item.region.x},${item.region.y} · ${item.estimated} boxes · ${item.reasons.join(", ")}`;
+        view.onclick = () => selectRegion(item.name, item.region.id);
+        li.append(view);
+        for (const [decision, label] of [["accepted", "Accept"], ["rejected", "Reject"], ["deferred", "Defer"]]) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "ghost-btn";
+            button.textContent = label;
+            button.onclick = () => {
+                state.review_queue[item.region.id] = decision;
+                markChanged();
+                rankQueue();
+            };
+            li.append(button);
+        }
+        list.append(li);
+    }
+}
+$("refreshQueueBtn").onclick = rankQueue;
+$("propagateBtn").onclick = async () => {
+    const image = currentImage();
+    if (!image) return;
+    await syncSession();
+    try {
+        const result = await api("/api/propagate", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({source: image.name}),
+        });
+        state.annotations[result.target] = result.boxes;
+        state.frames = result.frames;
+        for (const region of state.regions[result.target] || []) region.reviewed = false;
+        markChanged();
+        selectImage(state.images.findIndex((item) => item.name === result.target), true);
+        toast("Suggested boxes are drafts. Review before trusting them.", "ok");
+    } catch (err) { toast(`Propagation failed: ${err.message}`, "error"); }
+};
+
+$("pseudoExportBtn").onclick = () => $("pseudoDialog").showModal();
+$("pseudoForm").onsubmit = async (event) => {
+    event.preventDefault();
+    const form = event.target.elements;
+    await syncSession();
+    try {
+        const result = await api("/api/pseudo/export", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                name: form.name.value.trim(),
+                confidence: Number(form.confidence.value),
+                match_iou: Number(form.match_iou.value),
+                max_frame_gap: Number(form.max_frame_gap.value),
+                train_split: Number(form.train_split.value) / 100,
+            }),
+        });
+        $("pseudoDialog").close();
+        toast(`Exported ${result.boxes} pseudo-label proposals as a separate dataset.`,
+            "ok", result.path, 12000);
+    } catch (error) {
+        toast(`Pseudo-label export failed: ${error.message}`, "error");
+    }
+};

@@ -143,6 +143,8 @@ def evaluate_predictions(
                 "name": name,
                 "source": frame["source"],
                 "frame_index": frame["frame_index"],
+                "width": frame["width"],
+                "height": frame["height"],
                 "truth_boxes": frame["boxes"],
                 "prediction_boxes": boxes,
                 **result,

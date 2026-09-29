@@ -93,7 +93,11 @@ def test_session_file_roundtrip(tmp_path: Path) -> None:
     session = make_session()
     path = save_session_file(session, tmp_path / "sub" / "session.json")
     assert path.is_file()
-    assert load_session_file(path) == session
+    loaded = load_session_file(path)
+    assert {key: loaded[key] for key in session} == session
+    assert loaded["regions"] == {}
+    assert loaded["review_queue"] == {}
+    assert loaded["comparisons"] == []
     # A directory gets a default file name, missing suffixes are added.
     assert save_session_file(session, tmp_path).name == "session.json"
     assert save_session_file(session, tmp_path / "named").name == (

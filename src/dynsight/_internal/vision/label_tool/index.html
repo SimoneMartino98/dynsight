@@ -62,6 +62,7 @@
                         <label class="check"><input id="uncertainCheck" type="checkbox" /> Uncertain box</label>
                         <label class="check"><input id="borderCheck" type="checkbox" /> Border-cut box</label>
                     </div>
+                    <p id="boxReason" class="muted"></p>
                 </section>
 
                 <section class="panel grow">
@@ -85,6 +86,34 @@
                         <option value="test">Test set</option>
                     </select>
                     <ul id="imageList" class="item-list grow-list"></ul>
+                </section>
+
+                <section class="panel">
+                    <h2>Session comparisons</h2>
+                    <p class="muted">Saved with this label-tool session.</p>
+                    <ul id="comparisonList" class="item-list"></ul>
+                </section>
+                <section class="panel">
+                    <h2>Region review</h2>
+                    <p class="muted">Verify small parts of the current frame. Unchecked areas remain drafts.</p>
+                    <div class="btn-row">
+                        <button id="makeRegionsBtn" class="ghost-btn">Make 256 px tiles</button>
+                        <button id="fitRegionBtn" class="ghost-btn">Show selected tile</button>
+                    </div>
+                    <div class="btn-row">
+                        <button id="verifyRegionBtn" class="ghost-btn">Mark tile verified</button>
+                        <button id="unverifyRegionBtn" class="ghost-btn">Undo verification</button>
+                    </div>
+                    <ul id="regionList" class="item-list"></ul>
+                    <button id="exportRegionsBtn" class="ghost-btn">Export verified regions</button>
+                </section>
+                <section class="panel">
+                    <h2>Review queue</h2>
+                    <p class="muted">Suggestions include difficult and ordinary tiles. Your decisions stay in this session.</p>
+                    <button id="refreshQueueBtn" class="ghost-btn">Rank tiles</button>
+                    <ul id="reviewQueueList" class="item-list"></ul>
+                    <button id="propagateBtn" class="ghost-btn">Suggest boxes on next frame</button>
+                    <button id="pseudoExportBtn" class="ghost-btn">Export cautious pseudo-labels</button>
                 </section>
             </aside>
 
@@ -113,6 +142,7 @@
         <footer id="statusbar">
             <span id="workspacePath" class="mono"></span>
             <span id="saveStatus"></span>
+            <span id="sessionSummary" class="muted"></span>
             <span class="spacer"></span>
             <span class="muted">
                 draw: drag &middot; select: click &middot; move/resize: drag
@@ -185,12 +215,23 @@
             </form>
         </dialog>
 
+        <dialog id="comparisonViewDialog" class="wide-dialog">
+            <div class="comparison-view">
+                <div class="dialog-actions">
+                    <a id="comparisonHtmlLink" target="_blank" rel="noopener">Open report / Print PDF</a>
+                    <a id="comparisonJsonLink" target="_blank" rel="noopener">View JSON</a>
+                    <button type="button" class="ghost-btn" data-close>Close</button>
+                </div>
+                <iframe id="comparisonFrame" title="Visual model comparison"></iframe>
+            </div>
+        </dialog>
+
         <dialog id="synthDialog">
             <form method="dialog" id="synthForm">
                 <h3>Synthesize dataset</h3>
                 <p class="muted">
-                    Annotated crops are pasted at random positions onto uniform
-                    backgrounds.
+                    Reviewed crops are pasted onto uniform or verified empty
+                    real backgrounds. Source provenance is saved with the dataset.
                 </p>
                 <label>
                     Dataset name
@@ -236,6 +277,12 @@
                         <input type="color" name="background" value="#ffffff" />
                     </label>
                 </div>
+                <label>Background source
+                    <select name="background_mode">
+                        <option value="uniform">Uniform color</option>
+                        <option value="real">Verified empty real tiles</option>
+                    </select>
+                </label>
                 <label>
                     Output directory (optional, defaults to workspace)
                     <input type="text" name="output" placeholder="/path/to/output" />
@@ -244,6 +291,19 @@
                     <button type="button" class="ghost-btn" data-close>Cancel</button>
                     <button type="submit" class="primary-btn">Generate</button>
                 </div>
+            </form>
+        </dialog>
+
+        <dialog id="pseudoDialog">
+            <form method="dialog" id="pseudoForm">
+                <h3>Export pseudo-label proposals</h3>
+                <p class="muted">Only high-confidence draft boxes seen in nearby frames are admitted. This dataset is model-generated and remains separate from reviewed training or test data; unlabelled cells may remain in its full frames.</p>
+                <label>Dataset name <input name="name" value="pseudo_proposals" required /></label>
+                <label>Minimum confidence <input name="confidence" type="number" min="0.01" max="1" step="0.01" value="0.9" required /></label>
+                <label>Cross-frame IoU <input name="match_iou" type="number" min="0.01" max="1" step="0.01" value="0.5" required /></label>
+                <label>Maximum frame-index gap <input name="max_frame_gap" type="number" min="1" value="5" required /></label>
+                <label>Train split (%) <input name="train_split" type="number" min="1" max="99" value="80" required /></label>
+                <div class="dialog-actions"><button type="button" class="ghost-btn" data-close>Cancel</button><button type="submit" class="primary-btn">Export proposals</button></div>
             </form>
         </dialog>
 

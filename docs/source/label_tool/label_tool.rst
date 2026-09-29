@@ -48,12 +48,14 @@ automatically appear in your default web browser.
     the URL provided in the terminal output.
 
 All uploaded images are stored inside the *workspace* directory
-(``./label_tool_workspace`` by default). The labeling session (labels and
-boxes) is kept in memory and is **never written to disk automatically**:
-use the *Save session* button to write it to a JSON file at a path of your
-choice, and *Load* to restore it later. If the session has unsaved changes,
-the *Quit* button asks whether to save it before stopping the server
-(``Ctrl+C`` in the terminal also stops it).
+(``./label_tool_workspace`` by default). The active session holds labels,
+boxes, region reviews, queue decisions, and comparison links together.
+Use *Save session* to write its JSON file. Frame copies are saved in a
+sibling ``<session stem>_frames`` directory, and comparison reports in
+``<session stem>_comparisons``. Keep these directories with the JSON when
+moving a session. On restart, the tool reopens the last saved session in
+that workspace when its files are available. Unsaved edits remain only in
+server memory; *Quit* asks whether to save them first.
 
 -------
 The GUI
@@ -101,11 +103,46 @@ ready-to-use ``dataset.yaml``:
   same source video stay in one split when multiple sources exist. With just
   one source, the exported ``frame_manifest.json`` explicitly identifies the
   correlated frame split. Older sessions load with frames unreviewed until
-  they are explicitly checked.
+  they are explicitly checked. Sources represented in the frozen test set
+  are excluded from training export.
 
 * **Synthesize**: creates a synthetic dataset from reviewed, non-test crops
-  pasted at random, non-overlapping positions onto uniform backgrounds
-  (useful when only a few labeled images are available).
+  pasted at random, non-overlapping positions onto a uniform background or
+  onto **verified empty real regions**. The ``source_manifest.json`` records
+  crop and background sources. With multiple sources, train and validation
+  are grouped by source. A single-source split remains correlated and is
+  identified in the manifest.
+
+-------------------------------
+Review regions and draft support
+-------------------------------
+
+The **Region review** panel divides the selected frame into 256-pixel tiles.
+Select a tile to zoom into it. Mark it verified only after checking every
+object inside, including border-cut boxes; an empty verified tile is a
+valid negative. Edits to any boxes on the frame clear its tile verification
+so it can be checked again. **Export verified regions** writes only those
+tiles, including clipped boxes that intersect their borders, and records
+their source pixels in ``region_manifest.json``. A partly reviewed frame
+does not become reviewed ground truth. Frozen test sources are excluded.
+
+**Rank tiles** proposes a review queue using confidence, uncertain boxes,
+border crossings, unusual shape, count changes, and any saved comparison's
+misses or false positives. It also includes ordinary and empty examples.
+Accept, reject, and defer decisions remain in the same session. The queue
+does not change annotations on its own.
+
+After a whole keyframe is reviewed, **Suggest boxes on next frame** uses
+optical flow and existing drafts to propose boxes on the next unreviewed
+frame from the same video. It preserves unmatched existing drafts. All
+propagated boxes remain unreviewed, and uncertain moves are flagged.
+
+**Export cautious pseudo-labels** is a separate, explicitly model-generated
+dataset. Only high-confidence draft boxes with a same-class spatial match
+in a nearby frame are admitted. The policy and provenance are written to
+``pseudo_manifest.json``; frozen test sources are excluded. Full-frame
+images can still contain unlabelled objects, so this export must not be
+treated as reviewed ground truth.
 
 ---------------------------
 Review and compare models
@@ -134,15 +171,20 @@ working session is edited later, and its source images cannot be replaced or
 deleted from the label tool.
 
 Use **Compare models** with that benchmark path and one checkpoint path per
-line. The tool runs every checkpoint on the same frozen images and saves a
-JSON report with frame-level matches, false positives, misses, count error,
-and aggregate precision, recall, and F1. Click a frame in the comparison
-results to inspect an overlay: green boxes are frozen benchmark annotations
-and red boxes are model predictions. Press Escape or navigate to another
-frame to leave the overlay. Matching is same-class, greedy by prediction
-confidence at the chosen box IoU. The report records inference settings and
-the benchmark identifier. Threshold curves include only cutoffs at or above
-the inference confidence floor, and the report lists frames reaching the
-maximum-detections cap. These metrics describe only the selected
-annotated frames; frame selection and annotation quality remain the main
-limits on interpretation.
+line. The tool uses the same images and inference settings for every model.
+It opens a comparison view *inside the active label-tool session* with
+precision-recall and F1 curves, count error, sortable frame rows, and
+synchronized side-by-side overlays. Green marks matched reviewed truth,
+yellow missed truth, cyan matched predictions, and red false positives.
+The view explains metric denominators and can be reopened from **Session
+comparisons** after restart. It supports browser printing to PDF.
+
+Each comparison saves ``report.json``, standalone ``index.html``, selected
+overlay screenshots, and SVG curves under ``workspace/comparisons/<id>``.
+The session keeps the report link and bundles these files when saved. The
+report records image and checkpoint hashes, class mappings, effective
+settings, matching rules, per-frame matches, and source-overlap warnings.
+Opening a saved comparison warns if an input changed. Matching is
+same-class and greedy by prediction confidence at the chosen IoU; curves
+only include thresholds above the inference confidence floor. The metrics
+describe the selected reviewed frames, not accuracy on the whole video.

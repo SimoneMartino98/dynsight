@@ -151,7 +151,8 @@ button:disabled {
     flex-direction: column;
     background: var(--bg-panel);
     border-right: 1px solid var(--border);
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .panel {
@@ -263,6 +264,7 @@ textarea:focus {
 
 .btn-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
 }
@@ -272,7 +274,9 @@ textarea:focus {
 }
 
 .btn-row button {
-    flex: 1;
+    flex: 1 1 100px;
+    min-width: 0;
+    white-space: normal;
 }
 
 /* ---------- lists ---------- */
@@ -625,4 +629,40 @@ input[type="color"] {
         transform: translateY(0);
         opacity: 1;
     }
+}
+
+.wide-dialog {
+    width: min(96vw, 1500px);
+    height: min(94vh, 1000px);
+    max-width: none;
+    max-height: none;
+    padding: 12px;
+}
+
+.comparison-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.comparison-view iframe {
+    flex: 1;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+#reviewQueueList li {
+    flex-wrap: wrap;
+}
+
+#reviewQueueList li button:first-child {
+    flex: 1 0 100%;
+    white-space: normal;
+    text-align: left;
+}
+
+#reviewQueueList li button:not(:first-child) {
+    flex: 1 1 50px;
+    font-size: 11px;
 }

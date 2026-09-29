@@ -12,6 +12,7 @@ directly to disk in the exact layout expected by
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import logging
 import random
@@ -28,6 +29,16 @@ from urllib.parse import parse_qs, urlparse
 import yaml
 from PIL import Image
 
+from dynsight._internal.vision.comparison_report import (
+    write_comparison_assets,
+    write_comparison_html,
+)
+from dynsight._internal.vision.propagation import propose_next_frame
+from dynsight._internal.vision.region_review import (
+    export_pseudo_dataset,
+    export_verified_regions,
+    verified_region_records,
+)
 from dynsight._internal.vision.review import (
     benchmark_snapshot,
     evaluate_predictions,
@@ -143,7 +154,15 @@ def _image_size(path: Path) -> tuple[int, int]:
 
 def _empty_session() -> dict[str, Any]:
     """Return a new empty labeling session."""
-    return {"schema_version": 2, "labels": [], "annotations": {}, "frames": {}}
+    return {
+        "schema_version": 2,
+        "labels": [],
+        "annotations": {},
+        "frames": {},
+        "regions": {},
+        "review_queue": {},
+        "comparisons": [],
+    }
 
 
 def _normalize_session_path(raw: object) -> Path:
@@ -184,6 +203,9 @@ def load_session_file(raw_path: object) -> dict[str, Any]:
         "labels": data.get("labels", []),
         "annotations": data.get("annotations", {}),
         "frames": data.get("frames", {}),
+        "regions": data.get("regions", {}),
+        "review_queue": data.get("review_queue", {}),
+        "comparisons": data.get("comparisons", []),
     }
 
 
@@ -192,8 +214,113 @@ def _session_assets_dir(path: Path) -> Path:
     return path.with_name(f"{path.stem}_frames")
 
 
+def _session_comparisons_dir(path: Path) -> Path:
+    return path.with_name(f"{path.stem}_comparisons")
+
+
+def _comparison_asset_names(item: dict[str, Any]) -> list[str]:
+    names = ["report.json", "index.html", *item.get("assets", [])]
+    if any(
+        not isinstance(name, str)
+        or _safe_name(name) != name
+        or Path(name).suffix.lower() not in {".json", ".html", ".jpg", ".svg"}
+        for name in names
+    ):
+        msg = "Session contains an invalid comparison asset name."
+        raise ValueError(msg)
+    return names
+
+
+def _save_session_comparisons(
+    workspace: _Workspace, session: dict[str, Any], path: Path
+) -> None:
+    """Keep visual reports with their label-tool session."""
+    for item in session.get("comparisons", []):
+        report_id = str(item.get("id", ""))
+        if not re.fullmatch(r"[a-f0-9]{12}", report_id):
+            msg = "Session contains an invalid comparison ID."
+            raise ValueError(msg)
+        source = workspace.root / "comparisons" / report_id
+        if (
+            not (source / "report.json").is_file()
+            or not (source / "index.html").is_file()
+        ):
+            msg = f"Comparison report is missing: {report_id}"
+            raise ValueError(msg)
+        target = _session_comparisons_dir(path) / report_id
+        target.mkdir(parents=True, exist_ok=True)
+        for name in _comparison_asset_names(item):
+            shutil.copy2(source / name, target / name)
+
+
+def _restore_session_comparisons(
+    workspace: _Workspace, session: dict[str, Any], path: Path
+) -> None:
+    for item in session.get("comparisons", []):
+        report_id = str(item.get("id", ""))
+        if not re.fullmatch(r"[a-f0-9]{12}", report_id):
+            msg = "Session contains an invalid comparison ID."
+            raise ValueError(msg)
+        source = _session_comparisons_dir(path) / report_id
+        target = workspace.root / "comparisons" / report_id
+        for name in _comparison_asset_names(item):
+            original = source / name
+            restored = target / name
+            if not original.is_file():
+                msg = f"Saved comparison asset is missing: {original}"
+                raise ValueError(msg)
+            if restored.is_file() and _sha256(restored) != _sha256(original):
+                msg = f"Workspace comparison differs: {report_id}"
+                raise ValueError(msg)
+            restored.parent.mkdir(parents=True, exist_ok=True)
+            if not restored.exists():
+                shutil.copy2(original, restored)
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _model_source_warning(model: Any, benchmark: dict[str, Any]) -> str:
+    """Check recorded dataset sources when checkpoint metadata exposes them."""
+    checkpoint = getattr(model, "ckpt", None) or {}
+    train_args = (
+        checkpoint.get("train_args", {})
+        if isinstance(checkpoint, dict)
+        else {}
+    )
+    data = train_args.get("data")
+    if not data:
+        return "Training/validation source overlap could not be verified."
+    dataset = Path(str(data)).expanduser()
+    root = dataset.parent if dataset.is_file() else dataset
+    sources = set()
+    for name in (
+        "frame_manifest.json",
+        "region_manifest.json",
+        "source_manifest.json",
+    ):
+        manifest = root / name
+        if not manifest.is_file():
+            continue
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+        for item in payload.get(
+            "frames", payload.get("regions", payload.get("images", []))
+        ):
+            if item.get("source"):
+                sources.add(item["source"])
+            sources.update(item.get("crop_sources", []))
+            if item.get("background_source"):
+                sources.add(item["background_source"])
+    if not sources:
+        return "Training/validation source overlap could not be verified."
+    benchmark_sources = {frame["source"] for frame in benchmark["frames"]}
+    overlap = sources & benchmark_sources
+    if overlap:
+        return "Benchmark shares training/validation source(s): " + ", ".join(
+            sorted(overlap)
+        )
+    return "No source overlap found in recorded dataset provenance."
 
 
 def _save_session_frames(workspace: _Workspace, path: Path) -> list[str]:
@@ -448,11 +575,18 @@ def export_dataset(
     if not 0.0 < train_split < 1.0:
         msg = "train_split must be between 0 and 1."
         raise ValueError(msg)
+    test_sources = {
+        meta.get("source", frame_name)
+        for frame_name, meta in session.get("frames", {}).items()
+        if meta.get("split") == "test"
+    }
     images = [
         info
         for info in workspace.list_images()
         if session.get("frames", {}).get(info["name"], {}).get("reviewed")
         and session["frames"][info["name"]].get("split") != "test"
+        and session["frames"][info["name"]].get("source", info["name"])
+        not in test_sources
     ]
     if not images:
         msg = "No reviewed non-test images in the workspace."
@@ -569,7 +703,7 @@ def _place_crop(
     return None
 
 
-def synthesize_dataset(
+def synthesize_dataset(  # noqa: C901, PLR0912, PLR0915
     workspace: _Workspace,
     session: dict[str, Any],
     name: str,
@@ -580,18 +714,23 @@ def synthesize_dataset(
     train_split: float = 0.8,
     scale_range: tuple[float, float] = (1.0, 1.0),
     background: str = "#ffffff",
+    background_mode: str = "uniform",
     seed: int | None = None,
     output_dir: Path | None = None,
     on_progress: _ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Generate a synthetic YOLO dataset from the annotated crops.
 
-    Annotated regions are cut out of the source images and pasted at
-    random non-overlapping positions onto uniform background canvases.
+    Reviewed crops are pasted on uniform or verified-empty backgrounds.
     """
     names = [label["name"] for label in session.get("labels", [])]
     class_ids = {label: idx for idx, label in enumerate(names)}
     annotations: dict[str, Any] = session.get("annotations", {})
+    test_sources = {
+        meta.get("source", frame_name)
+        for frame_name, meta in session.get("frames", {}).items()
+        if meta.get("split") == "test"
+    }
     crops = [
         {"image": image_name, **box}
         for image_name, boxes in annotations.items()
@@ -599,10 +738,28 @@ def synthesize_dataset(
         if box["label"] in class_ids
         and session.get("frames", {}).get(image_name, {}).get("reviewed")
         and session["frames"][image_name].get("split") != "test"
+        and session["frames"][image_name].get("source", image_name)
+        not in test_sources
         and (workspace.images_dir / image_name).is_file()
     ]
     if not crops:
         msg = "No annotations available to synthesize from."
+        raise ValueError(msg)
+
+    empty_regions = (
+        [
+            item
+            for item in verified_region_records(workspace, session)
+            if not item["boxes"]
+        ]
+        if background_mode == "real"
+        else []
+    )
+    if background_mode not in {"uniform", "real"}:
+        msg = "Unknown background mode."
+        raise ValueError(msg)
+    if background_mode == "real" and not empty_regions:
+        msg = "Verify an empty region before using real backgrounds."
         raise ValueError(msg)
 
     base = output_dir if output_dir is not None else workspace.root
@@ -611,13 +768,81 @@ def synthesize_dataset(
     rng = random.Random(seed)  # noqa: S311
     num_train = _split_count(num_images, train_split)
 
+    crop_sources = {
+        session["frames"][crop["image"]].get("source", crop["image"])
+        for crop in crops
+    }
+    source_names = sorted(crop_sources)
+    rng.shuffle(source_names)
+    grouped = len(source_names) > 1
+    train_sources = (
+        set(source_names[: _split_count(len(source_names), train_split)])
+        if grouped
+        else set(source_names)
+    )
+    if grouped:
+        for split in ("train", "val"):
+            allowed = (
+                train_sources
+                if split == "train"
+                else crop_sources - train_sources
+            )
+            if background_mode == "real" and not any(
+                item["source"] in allowed for item in empty_regions
+            ):
+                msg = f"No verified empty background from {split} sources."
+                raise ValueError(msg)
+
     sources: dict[str, Image.Image] = {}
+    manifest = []
     for idx in range(num_images):
-        canvas = Image.new("RGB", (width, height), background)
+        subset = "train" if idx < num_train else "val"
+        allowed_sources = (
+            (
+                train_sources
+                if subset == "train"
+                else crop_sources - train_sources
+            )
+            if grouped
+            else crop_sources
+        )
+        crop_pool = [
+            crop
+            for crop in crops
+            if session["frames"][crop["image"]].get("source", crop["image"])
+            in allowed_sources
+        ]
+        background_record = None
+        if background_mode == "real":
+            background_record = rng.choice(
+                [
+                    item
+                    for item in empty_regions
+                    if item["source"] in allowed_sources
+                ]
+            )
+            image_path = workspace.images_dir / background_record["name"]
+            with Image.open(image_path) as image:
+                region = background_record["region"]
+                canvas = (
+                    image.crop(
+                        (
+                            region["x"],
+                            region["y"],
+                            region["x"] + region["w"],
+                            region["y"] + region["h"],
+                        )
+                    )
+                    .convert("RGB")
+                    .resize((width, height))
+                )
+        else:
+            canvas = Image.new("RGB", (width, height), background)
         placed: list[tuple[float, float, float, float]] = []
         boxes: list[dict[str, Any]] = []
+        used_crops = []
         for _ in range(per_image):
-            crop = rng.choice(crops)
+            crop = rng.choice(crop_pool)
             if crop["image"] not in sources:
                 src_path = workspace.images_dir / crop["image"]
                 sources[crop["image"]] = Image.open(src_path).convert("RGB")
@@ -637,17 +862,51 @@ def synthesize_dataset(
             boxes.append(
                 {"label": crop["label"], "x": x, "y": y, "w": w, "h": h}
             )
-        subset = "train" if idx < num_train else "val"
+            used_crops.append(crop["image"])
         canvas.save(dirs[f"images/{subset}"] / f"synt_{idx:05d}.jpg")
         txt = _yolo_lines(boxes, class_ids, width, height)
         lbl = dirs[f"labels/{subset}"] / f"synt_{idx:05d}.txt"
         lbl.write_text(txt, encoding="utf-8")
+        manifest.append(
+            {
+                "image": f"synt_{idx:05d}.jpg",
+                "split": subset,
+                "crop_frames": used_crops,
+                "crop_sources": sorted(
+                    {
+                        session["frames"][name].get("source", name)
+                        for name in used_crops
+                    }
+                ),
+                "background_frame": (
+                    background_record["name"] if background_record else None
+                ),
+                "background_source": (
+                    background_record["source"] if background_record else None
+                ),
+            }
+        )
         if on_progress is not None:
             on_progress(idx + 1, num_images)
 
     for source in sources.values():
         source.close()
     yaml_path = _write_dataset_yaml(dataset_path, names)
+    (dataset_path / "source_manifest.json").write_text(
+        json.dumps(
+            {
+                "split_policy": (
+                    "grouped_by_source"
+                    if grouped
+                    else "single_source_correlated"
+                ),
+                "background_mode": background_mode,
+                "images": manifest,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return {
         "path": str(dataset_path),
         "yaml": str(yaml_path),
@@ -676,6 +935,24 @@ class _LabelToolServer(ThreadingHTTPServer):
         self.session_dirty = False
         self.progress: dict[str, Any] = {"active": False}
         self.progress_lock = threading.Lock()
+        last_session = workspace.root / ".last_session_path"
+        if last_session.is_file():
+            try:
+                path = _normalize_session_path(
+                    last_session.read_text().strip()
+                )
+                session = load_session_file(path)
+                _restore_session_frames(workspace, path)
+                _restore_session_comparisons(workspace, session, path)
+                self.session = session
+                self.session_path = str(path)
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                json.JSONDecodeError,
+            ) as exc:
+                logger.warning(f"Could not restore last session: {exc}")
         super().__init__(("127.0.0.1", port), _RequestHandler)
 
     def start_progress(self, label: str) -> _ProgressCallback:
@@ -746,7 +1023,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         parsed = parse_qs(urlparse(self.path).query)
         return {key: values[0] for key, values in parsed.items()}
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:  # noqa: C901, N802
         """Serve the GUI, workspace images and the state endpoint."""
         route = urlparse(self.path).path
         if route in _STATIC_FILES:
@@ -767,6 +1044,40 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self._api(self._handle_progress)
         elif route == "/api/files":
             self._api(self._handle_files)
+        elif route == "/api/comparison":
+            self._api(self._handle_comparison)
+        elif route.startswith("/reports/"):
+            parts = route[len("/reports/") :].split("/")
+            report_id = parts[0]
+            if re.fullmatch(r"[a-f0-9]{12}", report_id):
+                linked = next(
+                    (
+                        item
+                        for item in self.server.session.get("comparisons", [])
+                        if item.get("id") == report_id
+                    ),
+                    None,
+                )
+                asset = parts[1] if len(parts) == 2 else "index.html"  # noqa: PLR2004
+                if len(parts) > 2:  # noqa: PLR2004
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                if linked is None or asset not in _comparison_asset_names(
+                    linked
+                ):
+                    self.send_error(HTTPStatus.NOT_FOUND)
+                    return
+                content_type = {
+                    ".html": "text/html; charset=utf-8",
+                    ".jpg": "image/jpeg",
+                    ".svg": "image/svg+xml",
+                }.get(Path(asset).suffix.lower(), "application/json")
+                self._send_file(
+                    self._workspace.root / "comparisons" / report_id / asset,
+                    content_type,
+                )
+            else:
+                self.send_error(HTTPStatus.NOT_FOUND)
         else:
             self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -782,6 +1093,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "/api/video": self._handle_upload_video,
             "/api/video/from-path": self._handle_import_video,
             "/api/export": self._handle_export,
+            "/api/regions/export": self._handle_export_regions,
+            "/api/pseudo/export": self._handle_export_pseudo,
+            "/api/propagate": self._handle_propagate,
             "/api/predict": self._handle_predict,
             "/api/benchmark": self._handle_benchmark,
             "/api/compare": self._handle_compare,
@@ -821,6 +1135,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "labels": body.get("labels", []),
             "annotations": body.get("annotations", {}),
             "frames": body.get("frames", {}),
+            "regions": body.get("regions", {}),
+            "review_queue": body.get("review_queue", {}),
+            "comparisons": body.get("comparisons", []),
         }
 
     def _handle_state(self) -> dict[str, Any]:
@@ -831,6 +1148,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
             "labels": session.get("labels", []),
             "annotations": session.get("annotations", {}),
             "frames": session.get("frames", {}),
+            "regions": session.get("regions", {}),
+            "review_queue": session.get("review_queue", {}),
+            "comparisons": session.get("comparisons", []),
             "session_path": self.server.session_path,
             "dirty": self.server.session_dirty,
         }
@@ -845,6 +1165,36 @@ class _RequestHandler(BaseHTTPRequestHandler):
             query.get("path", ""), query.get("kind", ""), self._workspace.root
         )
 
+    def _handle_comparison(self) -> dict[str, Any]:
+        report_id = self._query().get("id", "")
+        if not re.fullmatch(r"[a-f0-9]{12}", report_id):
+            msg = "Invalid comparison ID."
+            raise ValueError(msg)
+        if not any(
+            item.get("id") == report_id
+            for item in self.server.session.get("comparisons", [])
+        ):
+            msg = "Comparison is not linked to this session."
+            raise ValueError(msg)
+        path = self._workspace.root / "comparisons" / report_id / "report.json"
+        if not path.is_file():
+            msg = f"Comparison report is missing: {report_id}"
+            raise ValueError(msg)
+        report = json.loads(path.read_text(encoding="utf-8"))
+        input_warnings = []
+        for name, saved_hash in report.get("image_hashes", {}).items():
+            image = self._workspace.images_dir / name
+            if not image.is_file() or _sha256(image) != saved_hash:
+                input_warnings.append(f"Benchmark frame changed: {name}")
+        for item in report.get("reports", []):
+            model = Path(item["model"])
+            if not model.is_file() or _sha256(model) != item["model_sha256"]:
+                input_warnings.append(f"Checkpoint changed: {model}")
+        report["input_warnings"] = input_warnings
+        if self._query().get("status") == "1":
+            return {"input_warnings": input_warnings}
+        return report
+
     def _handle_sync(self) -> dict[str, Any]:
         """Update the in-memory session (no disk write)."""
         self.server.session = self._session_from(self._json_body())
@@ -858,9 +1208,11 @@ class _RequestHandler(BaseHTTPRequestHandler):
             self.server.session = self._session_from(body)
         path = _normalize_session_path(body.get("path"))
         images = _save_session_frames(self._workspace, path)
+        _save_session_comparisons(self._workspace, self.server.session, path)
         save_session_file({**self.server.session, "images": images}, path)
         self.server.session_path = str(path)
         self.server.session_dirty = False
+        (self._workspace.root / ".last_session_path").write_text(str(path))
         return {"path": str(path)}
 
     def _handle_load_session(self) -> dict[str, Any]:
@@ -869,11 +1221,13 @@ class _RequestHandler(BaseHTTPRequestHandler):
         path = _normalize_session_path(body.get("path"))
         session = load_session_file(path)
         images = _restore_session_frames(self._workspace, path)
+        _restore_session_comparisons(self._workspace, session, path)
         self.server.session = session
         self.server.session_path = str(
             _normalize_session_path(body.get("path"))
         )
         self.server.session_dirty = False
+        (self._workspace.root / ".last_session_path").write_text(str(path))
         return {**session, "images": images}
 
     def _handle_upload_image(self) -> dict[str, Any]:
@@ -963,6 +1317,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
         self._workspace.delete_image(name)
         self.server.session["annotations"].pop(name, None)
         self.server.session["frames"].pop(name, None)
+        for region in self.server.session.get("regions", {}).pop(name, []):
+            self.server.session.get("review_queue", {}).pop(region["id"], None)
         return {"deleted": True}
 
     def _handle_predict(self) -> dict[str, Any]:
@@ -1028,6 +1384,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                         "h": y2 - y1,
                         "confidence": conf,
                         "model": model_path,
+                        "provenance": "model_draft",
                         "original_box": [x1, y1, x2, y2],
                     }
                 )
@@ -1039,6 +1396,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
         return {
             "predictions": predictions,
             "frames": self.server.session["frames"],
+            "labels": self.server.session["labels"],
         }
 
     def _handle_benchmark(self) -> dict[str, Any]:
@@ -1059,6 +1417,15 @@ class _RequestHandler(BaseHTTPRequestHandler):
         }
 
     def _handle_compare(self) -> dict[str, Any]:
+        on_progress = self.server.start_progress("Comparing models")
+        try:
+            return self._run_compare(on_progress)
+        finally:
+            self.server.end_progress()
+
+    def _run_compare(  # noqa: C901, PLR0915
+        self, on_progress: _ProgressCallback
+    ) -> dict[str, Any]:
         from ultralytics import YOLO
 
         body = self._json_body()
@@ -1075,18 +1442,29 @@ class _RequestHandler(BaseHTTPRequestHandler):
         if not isinstance(models, list) or not models:
             msg = "At least one model path is required."
             raise ValueError(msg)
+        for frame in benchmark["frames"]:
+            image_path = self._workspace.images_dir / frame["name"]
+            if (
+                not image_path.is_file()
+                or _sha256(image_path) != frame["sha256"]
+            ):
+                msg = f"Benchmark image changed: {frame['name']}"
+                raise ValueError(msg)
+        model_hashes = {}
+        for model_path in models:
+            model_file = Path(str(model_path))
+            if not model_file.is_file():
+                msg = f"Model checkpoint missing: {model_path}"
+                raise ValueError(msg)
+            model_hashes[str(model_path)] = _sha256(model_file)
         reports = []
+        done = 0
+        total = len(models) * len(benchmark["frames"])
         for model_path in models:
             model = YOLO(str(model_path))
             predictions = {}
             for frame in benchmark["frames"]:
                 image_path = self._workspace.images_dir / frame["name"]
-                if (
-                    hashlib.sha256(image_path.read_bytes()).hexdigest()
-                    != frame["sha256"]
-                ):
-                    msg = f"Benchmark image changed: {frame['name']}"
-                    raise ValueError(msg)
                 result = cast(
                     "list[Results]",
                     model.predict(
@@ -1120,6 +1498,8 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     }
                     for xyxy, cls, conf in rows
                 ]
+                done += 1
+                on_progress(done, total)
             report = evaluate_predictions(
                 benchmark, predictions, float(body.get("match_iou", 0.5))
             )
@@ -1135,12 +1515,14 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 if len(boxes) >= int(body.get("max_det", 500))
             ]
             report["model"] = str(model_path)
-            model_file = Path(str(model_path))
-            report["model_sha256"] = (
-                hashlib.sha256(model_file.read_bytes()).hexdigest()
-                if model_file.is_file()
-                else None
-            )
+            if _sha256(Path(str(model_path))) != model_hashes[str(model_path)]:
+                msg = (
+                    f"Model checkpoint changed during comparison: {model_path}"
+                )
+                raise ValueError(msg)
+            report["model_sha256"] = model_hashes[str(model_path)]
+            report["class_mapping"] = model.names
+            report["source_check"] = _model_source_warning(model, benchmark)
             report["inference"] = {
                 key: body.get(key)
                 for key in (
@@ -1151,25 +1533,99 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     "device",
                 )
             }
+            predictor = getattr(model, "predictor", None)
+            args = getattr(predictor, "args", None)
+            report["effective_inference"] = {
+                "confidence": getattr(args, "conf", None),
+                "nms_iou": getattr(args, "iou", None),
+                "imgsz": getattr(args, "imgsz", None),
+                "max_det": getattr(args, "max_det", None),
+                "device": str(getattr(predictor, "device", "unknown")),
+            }
             reports.append(report)
-        output = {"benchmark": str(path), "reports": reports}
+        settings = {
+            key: body.get(key)
+            for key in (
+                "confidence",
+                "nms_iou",
+                "imgsz",
+                "max_det",
+                "device",
+                "match_iou",
+            )
+        }
+        warnings = []
+        labels = {label["name"] for label in benchmark.get("labels", [])}
+        for report in reports:
+            mapping = report["class_mapping"]
+            unknown = (
+                set(mapping.values() if isinstance(mapping, dict) else mapping)
+                - labels
+            )
+            if unknown:
+                warnings.append(
+                    f"{report['model']}: classes absent from benchmark: "
+                    + ", ".join(sorted(unknown))
+                )
+            if report["capped_frames"]:
+                warnings.append(
+                    f"{report['model']}: max_det reached on "
+                    f"{len(report['capped_frames'])} frame(s)."
+                )
+            warnings.append(f"{report['model']}: {report['source_check']}")
+        output = {
+            "benchmark": str(path),
+            "benchmark_id": benchmark["benchmark_id"],
+            "image_hashes": {
+                frame["name"]: frame["sha256"] for frame in benchmark["frames"]
+            },
+            "package_version": importlib.metadata.version("dynsight"),
+            "settings": settings,
+            "match_iou": float(body.get("match_iou", 0.5)),
+            "warnings": warnings,
+            "reports": reports,
+        }
         comparison_id = hashlib.sha256(
             json.dumps(
                 {
                     "benchmark": benchmark["benchmark_id"],
-                    "models": models,
-                    "settings": body,
+                    "models": model_hashes,
+                    "settings": settings,
                 },
                 sort_keys=True,
             ).encode()
         ).hexdigest()[:12]
-        report_path = (
-            self._workspace.root
-            / "benchmarks"
-            / f"comparison_{benchmark['benchmark_id']}_{comparison_id}.json"
+        report_dir = self._workspace.root / "comparisons" / comparison_id
+        report_dir.mkdir(parents=True, exist_ok=True)
+        assets = write_comparison_assets(
+            output, self._workspace.images_dir, report_dir
         )
+        output["assets"] = assets
+        report_path = report_dir / "report.json"
         report_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
-        return {"path": str(report_path), **output}
+        html_path = write_comparison_html(
+            output, self._workspace.images_dir, report_dir / "index.html"
+        )
+        reference = {
+            "id": comparison_id,
+            "benchmark_id": benchmark["benchmark_id"],
+            "path": str(report_path),
+            "html": str(html_path),
+            "assets": assets,
+        }
+        self.server.session.setdefault("comparisons", [])[:] = [
+            item
+            for item in self.server.session["comparisons"]
+            if item.get("id") != comparison_id
+        ] + [reference]
+        self.server.session_dirty = True
+        return {
+            "id": comparison_id,
+            "html_url": f"/reports/{comparison_id}",
+            "comparisons": self.server.session["comparisons"],
+            "path": str(report_path),
+            **output,
+        }
 
     def _handle_export(self) -> dict[str, Any]:
         body = self._json_body()
@@ -1208,12 +1664,76 @@ class _RequestHandler(BaseHTTPRequestHandler):
                     float(body.get("scale_max", 1.0)),
                 ),
                 background=str(body.get("background", "#ffffff")),
+                background_mode=str(body.get("background_mode", "uniform")),
                 seed=body.get("seed"),
                 output_dir=Path(output) if output else None,
                 on_progress=on_progress,
             )
         finally:
             self.server.end_progress()
+
+    def _handle_export_regions(self) -> dict[str, Any]:
+        body = self._json_body()
+        output = body.get("output_dir")
+        return export_verified_regions(
+            self._workspace,
+            self.server.session,
+            name=str(body.get("name", "verified_regions")),
+            train_split=float(body.get("train_split", 0.8)),
+            seed=body.get("seed"),
+            output_dir=Path(output) if output else None,
+        )
+
+    def _handle_export_pseudo(self) -> dict[str, Any]:
+        body = self._json_body()
+        output = body.get("output_dir")
+        return export_pseudo_dataset(
+            self._workspace,
+            self.server.session,
+            dataset_name=str(body.get("name", "pseudo_proposals")),
+            confidence=float(body.get("confidence", 0.9)),
+            match_iou=float(body.get("match_iou", 0.5)),
+            max_frame_gap=int(body.get("max_frame_gap", 5)),
+            train_split=float(body.get("train_split", 0.8)),
+            output_dir=Path(output) if output else None,
+        )
+
+    def _handle_propagate(self) -> dict[str, Any]:
+        """Propose adjacent-frame boxes from a corrected keyframe."""
+        source = str(self._json_body().get("source", ""))
+        frames = self.server.session.get("frames", {})
+        meta = frames.get(source, {})
+        if not meta.get("reviewed"):
+            msg = "Review the whole keyframe before propagating boxes."
+            raise ValueError(msg)
+        candidates = [
+            (name, frame)
+            for name, frame in frames.items()
+            if name != source
+            and frame.get("source", name) == meta.get("source", source)
+            and not frame.get("reviewed")
+            and frame.get("split") != "test"
+            and isinstance(frame.get("frame_index"), int)
+            and isinstance(meta.get("frame_index"), int)
+            and frame["frame_index"] > meta["frame_index"]
+        ]
+        if not candidates:
+            msg = "No later unreviewed frame from this source is available."
+            raise ValueError(msg)
+        target = min(candidates, key=lambda item: item[1]["frame_index"])[0]
+        existing = self.server.session["annotations"].get(target, [])
+        proposals = propose_next_frame(
+            self._workspace.images_dir / source,
+            self._workspace.images_dir / target,
+            self.server.session["annotations"].get(source, []),
+            existing,
+            source,
+        )
+        self.server.session["annotations"][target] = proposals
+        frames[target]["reviewed"] = False
+        frames[target]["propagated_from"] = source
+        self.server.session_dirty = True
+        return {"target": target, "boxes": proposals, "frames": frames}
 
     def _handle_shutdown(self) -> dict[str, Any]:
         logger.info("Shutdown requested from the GUI.")
