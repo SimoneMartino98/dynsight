@@ -1493,6 +1493,7 @@ $("loadForm").onsubmit = async (e) => {
         state.labels = session.labels || [];
         state.annotations = session.annotations || {};
         state.frames = session.frames || {};
+        state.images = session.images || [];
         state.activeLabel = null;
         state.selection = -1;
         sessionPath = path;

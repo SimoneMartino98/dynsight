@@ -209,7 +209,7 @@ def test_synthesize_requires_annotations(tmp_path: Path) -> None:
         synthesize_dataset(ws, {"labels": [], "annotations": {}}, name="s")
 
 
-def test_http_api_roundtrip(tmp_path: Path) -> None:
+def test_http_api_roundtrip(tmp_path: Path) -> None:  # noqa: PLR0915
     server = _LabelToolServer(0, _Workspace(tmp_path / "ws"))
     port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -275,7 +275,19 @@ def test_http_api_roundtrip(tmp_path: Path) -> None:
             "POST",
             json.dumps({"path": str(session_file)}).encode("utf-8"),
         )
-        assert loaded == session
+        assert {key: loaded[key] for key in session} == session
+        assert loaded["images"] == [info]
+
+        # Saved frames survive deletion from the current workspace.
+        request("/api/images?name=img.png", "DELETE")
+        assert request("/api/state")["images"] == []
+        loaded = request(
+            "/api/session/load",
+            "POST",
+            json.dumps({"path": str(session_file)}).encode("utf-8"),
+        )
+        assert loaded["images"] == [info]
+        assert request("/api/state")["images"] == [info]
 
         export = request(
             "/api/export",

@@ -187,6 +187,62 @@ def load_session_file(raw_path: object) -> dict[str, Any]:
     }
 
 
+def _session_assets_dir(path: Path) -> Path:
+    """Keep frame files beside the session so it can be reopened elsewhere."""
+    return path.with_name(f"{path.stem}_frames")
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _save_session_frames(workspace: _Workspace, path: Path) -> list[str]:
+    """Snapshot the frames currently used by a session."""
+    names = [image["name"] for image in workspace.list_images()]
+    assets = _session_assets_dir(path)
+    assets.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        shutil.copy2(workspace.images_dir / name, assets / name)
+    return names
+
+
+def _restore_session_frames(
+    workspace: _Workspace, path: Path
+) -> list[dict[str, Any]]:
+    """Restore saved frames without replacing any existing workspace image."""
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    names = data.get("images")
+    # Sessions saved before frame snapshots used the workspace.
+    if names is None:
+        return workspace.list_images()
+    if not isinstance(names, list) or any(
+        not isinstance(name, str)
+        or _safe_name(name) != name
+        or Path(name).suffix.lower() not in _IMAGE_SUFFIXES
+        for name in names
+    ):
+        msg = "Session contains an invalid frame list."
+        raise ValueError(msg)
+    assets = _session_assets_dir(path)
+    for name in names:
+        source = assets / name
+        target = workspace.images_dir / name
+        if not source.is_file():
+            msg = f"Saved session frame is missing: '{source}'"
+            raise ValueError(msg)
+        if target.is_file() and _sha256(target) != _sha256(source):
+            msg = f"Workspace frame differs from saved session: '{name}'"
+            raise ValueError(msg)
+    for name in names:
+        target = workspace.images_dir / name
+        if not target.exists():
+            shutil.copy2(assets / name, target)
+    return [
+        image for image in workspace.list_images() if image["name"] in names
+    ]
+
+
 class _Workspace:
     """Filesystem-backed image storage of a labeling session."""
 
@@ -800,7 +856,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
         body = self._json_body()
         if "labels" in body or "annotations" in body or "frames" in body:
             self.server.session = self._session_from(body)
-        path = save_session_file(self.server.session, body.get("path"))
+        path = _normalize_session_path(body.get("path"))
+        images = _save_session_frames(self._workspace, path)
+        save_session_file({**self.server.session, "images": images}, path)
         self.server.session_path = str(path)
         self.server.session_dirty = False
         return {"path": str(path)}
@@ -808,13 +866,15 @@ class _RequestHandler(BaseHTTPRequestHandler):
     def _handle_load_session(self) -> dict[str, Any]:
         """Load a session file into memory and return it."""
         body = self._json_body()
-        session = load_session_file(body.get("path"))
+        path = _normalize_session_path(body.get("path"))
+        session = load_session_file(path)
+        images = _restore_session_frames(self._workspace, path)
         self.server.session = session
         self.server.session_path = str(
             _normalize_session_path(body.get("path"))
         )
         self.server.session_dirty = False
-        return session
+        return {**session, "images": images}
 
     def _handle_upload_image(self) -> dict[str, Any]:
         query = self._query()
